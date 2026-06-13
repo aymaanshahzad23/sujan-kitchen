@@ -131,6 +131,18 @@ tr:last-child td { border-bottom: none; }
   margin-bottom: 12px;
 }
 
+/* BCG matrix — full-width like original HTML; 500×400 viewBox scales with container */
+.bcg-chart {
+  width: 100%;
+}
+
+.bcg-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 5 / 4;
+}
+
 .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
 .field { display: flex; flex-direction: column; gap: 4px; }
 .field label { font-size: 11px; color: #6b5d4f; font-style: italic; }

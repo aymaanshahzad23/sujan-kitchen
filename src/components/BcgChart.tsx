@@ -57,7 +57,13 @@ export function BcgChart({
           </span>
         )}
       </div>
-      <svg viewBox="0 0 500 400" style={{ width: '100%', display: 'block' }}>
+      <div className="bcg-chart">
+        <svg
+          viewBox="0 0 500 400"
+          preserveAspectRatio="xMidYMid meet"
+          role="img"
+          aria-label="BCG matrix chart"
+        >
         {/* Star: low cost + high popularity (top-left) */}
         <rect x="0" y="0" width={aX} height={aY} fill="#f0f7f3" opacity="0.5" />
         {/* Plow: high cost + high popularity (top-right) */}
@@ -159,7 +165,8 @@ export function BcgChart({
             </g>
           );
         })}
-      </svg>
+        </svg>
+      </div>
 
       {tip && (
         <div

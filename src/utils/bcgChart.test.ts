@@ -75,8 +75,15 @@ describe('layoutChartPoints', () => {
 });
 
 describe('bubbleRadius', () => {
-  it('scales with sales volume', () => {
+  it('uses original HTML dashboard sizing (min 12px, scales with sqrt qty)', () => {
     expect(bubbleRadius(0)).toBe(12);
-    expect(bubbleRadius(25)).toBeGreaterThan(12);
+    expect(bubbleRadius(1)).toBe(12);
+    expect(bubbleRadius(25)).toBeCloseTo(13, 0);
+    expect(bubbleRadius(100)).toBeCloseTo(16, 0);
+  });
+
+  it('never caps radius at compact popularity-based size (~10px)', () => {
+    expect(bubbleRadius(5)).toBeGreaterThanOrEqual(12);
+    expect(bubbleRadius(100)).toBeGreaterThan(12);
   });
 });

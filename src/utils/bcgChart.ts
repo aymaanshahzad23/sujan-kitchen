@@ -81,15 +81,23 @@ const CHART = { left: 50, right: 490, top: 28, bottom: 355, width: 440, height: 
 const CHART_PAD = 14;
 const BUBBLE_GAP = 5;
 
+/** Original sujan-dashboard.html bubble sizing — do not replace with popularity-based caps */
+export const BCG_BUBBLE_MIN_RADIUS = 12;
+export const BCG_BUBBLE_QTY_BASE = 10;
+export const BCG_BUBBLE_QTY_SCALE = 0.6;
+
 function hashUnit(id: string, salt = 0): number {
   let h = salt;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
   return ((h % 1000) + 1000) % 1000 / 1000;
 }
 
-/** Large bubbles scaled by sales volume (original sizing) */
+/** Large bubbles scaled by sales volume — matches original HTML dashboard */
 export function bubbleRadius(qty: number): number {
-  return Math.max(12, 10 + Math.sqrt(qty) * 0.6);
+  return Math.max(
+    BCG_BUBBLE_MIN_RADIUS,
+    BCG_BUBBLE_QTY_BASE + Math.sqrt(Math.max(qty, 0)) * BCG_BUBBLE_QTY_SCALE,
+  );
 }
 
 function clampPoint(cx: number, cy: number, r: number) {
