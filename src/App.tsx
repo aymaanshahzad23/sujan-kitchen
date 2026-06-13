@@ -1,4 +1,15 @@
 import { useState } from 'react';
+import {
+  BrowserRouter,
+  Link,
+  Navigate,
+  NavLink,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useParams,
+} from 'react-router-dom';
 import type { CampId } from './types/database';
 import { AppProvider, useAppData } from './context/AppContext';
 import { isSupabaseConfigured } from './lib/supabase';
@@ -8,6 +19,15 @@ import {
   isStaffSubTab,
   type MainTab, type NavSectionId,
 } from './constants';
+import {
+  CAMPS,
+  campTabPath,
+  DEFAULT_CAMP,
+  DEFAULT_PATH,
+  firstTabInSection,
+  isCampId,
+  isMainTab,
+} from './routes';
 import { KotTab } from './tabs/KotTab';
 import { AnalysisTab } from './tabs/AnalysisTab';
 import { SummaryTab } from './tabs/SummaryTab';
@@ -18,28 +38,16 @@ import { ComplaintsTab } from './tabs/ComplaintsTab';
 import { ReportsTab } from './tabs/ReportsTab';
 import { ManageTab } from './tabs/ManageTab';
 
-function Dashboard({ onLogout }: { onLogout: () => void }) {
+function Dashboard({ camp, tab, onLogout }: { camp: CampId; tab: MainTab; onLogout: () => void }) {
   const { guests, staff } = useAppData();
-  const [section, setSection] = useState<NavSectionId>('kitchen');
-  const [tab, setTab] = useState<MainTab>('kot');
   const [view, setView] = useState('all');
   const [fk, setFk] = useState('');
   const campGuests = guests.guests;
   const pendingLeaves = staff.leaveRecords.filter((l) => l.status === 'pending').length;
   const inHouseCount = campGuests.filter((g) => g.status === 'in-house').length;
 
+  const section = sectionForTab(tab);
   const activeSection = NAV_SECTIONS.find((s) => s.id === section) ?? NAV_SECTIONS[0];
-
-  function selectSection(next: NavSectionId) {
-    setSection(next);
-    const first = NAV_SECTIONS.find((s) => s.id === next)?.tabs[0]?.[0];
-    if (first) setTab(first);
-  }
-
-  function selectTab(next: MainTab) {
-    setTab(next);
-    setSection(sectionForTab(next));
-  }
 
   function tabBadge(k: MainTab) {
     if (k === 'guests' && inHouseCount > 0) {
@@ -74,22 +82,25 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       <div className="nav-shell">
         <div className="nav-sections">
           {NAV_SECTIONS.map((s) => (
-            <button
+            <NavLink
               key={s.id}
-              type="button"
-              className={'nav-section' + (section === s.id ? ' active' : '')}
-              onClick={() => selectSection(s.id)}
+              to={campTabPath(camp, firstTabInSection(s.id as NavSectionId))}
+              className={({ isActive }) => 'nav-section' + (isActive || section === s.id ? ' active' : '')}
             >
               {s.label}
-            </button>
+            </NavLink>
           ))}
         </div>
         <div className="tab-bar nav-tabs">
           {activeSection.tabs.map(([k, l]) => (
-            <button key={k} type="button" className={'tab' + (tab === k ? ' active' : '')} onClick={() => selectTab(k)}>
+            <NavLink
+              key={k}
+              to={campTabPath(camp, k as MainTab)}
+              className={({ isActive }) => 'tab' + (isActive ? ' active' : '')}
+            >
               {TAB_LABELS[k as MainTab] ?? l}
               {tabBadge(k as MainTab)}
-            </button>
+            </NavLink>
           ))}
         </div>
       </div>
@@ -110,7 +121,14 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
 }
 
 function CampShell({ onLogout }: { onLogout: () => void }) {
-  const [camp, setCamp] = useState<CampId>('jawai');
+  const { camp: campParam, tab: tabParam } = useParams();
+
+  if (!campParam || !tabParam || !isCampId(campParam) || !isMainTab(tabParam)) {
+    return <Navigate to={DEFAULT_PATH} replace />;
+  }
+
+  const camp = campParam;
+  const tab = tabParam;
 
   return (
     <>
@@ -120,10 +138,11 @@ function CampShell({ onLogout }: { onLogout: () => void }) {
         </div>
       )}
       <div style={{ background: '#fff', borderBottom: '1px solid #d9cdb8', padding: '0 26px', display: 'flex' }}>
-        {(['jawai', 'sherbagh', 'serai'] as CampId[]).map((k) => (
-          <button
+        {CAMPS.map((k) => (
+          <Link
             key={k}
-            onClick={() => setCamp(k)}
+            to={campTabPath(k, tab)}
+            className={'camp-tab' + (camp === k ? ' active' : '')}
             style={{
               fontFamily: "'EB Garamond',Georgia,serif",
               fontSize: 14,
@@ -135,14 +154,15 @@ function CampShell({ onLogout }: { onLogout: () => void }) {
               cursor: 'pointer',
               marginBottom: -1,
               letterSpacing: '0.05em',
+              textDecoration: 'none',
             }}
           >
             {CAMP_NAMES[k]}
-          </button>
+          </Link>
         ))}
       </div>
       <AppProvider campId={camp} key={camp}>
-        <Dashboard onLogout={onLogout} />
+        <Dashboard camp={camp} tab={tab} onLogout={onLogout} />
       </AppProvider>
     </>
   );
@@ -162,6 +182,40 @@ function signOut() {
   sessionStorage.removeItem(AUTH_KEY);
 }
 
+function LoginRoute({ onLogin }: { onLogin: () => void }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const redirectTo =
+    typeof location.state === 'object' &&
+    location.state &&
+    'from' in location.state &&
+    typeof location.state.from === 'string'
+      ? location.state.from
+      : DEFAULT_PATH;
+
+  if (isSignedIn()) {
+    return <Navigate to={redirectTo} replace />;
+  }
+
+  return (
+    <LoginPage
+      onLogin={() => {
+        signIn();
+        onLogin();
+        navigate(redirectTo, { replace: true });
+      }}
+    />
+  );
+}
+
+function RequireAuth({ authed, children }: { authed: boolean; children: React.ReactNode }) {
+  const location = useLocation();
+  if (!authed) {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+  return children;
+}
+
 export default function App() {
   const [authed, setAuthed] = useState(isSignedIn);
 
@@ -170,16 +224,44 @@ export default function App() {
     setAuthed(false);
   }
 
-  if (!authed) {
-    return (
-      <LoginPage
-        onLogin={() => {
-          signIn();
-          setAuthed(true);
-        }}
-      />
-    );
-  }
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<LoginRoute onLogin={() => setAuthed(true)} />} />
+        <Route
+          path="/"
+          element={
+            <RequireAuth authed={authed}>
+              <Navigate to={DEFAULT_PATH} replace />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/:camp"
+          element={
+            <RequireAuth authed={authed}>
+              <CampRedirect />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/:camp/:tab"
+          element={
+            <RequireAuth authed={authed}>
+              <CampShell onLogout={handleLogout} />
+            </RequireAuth>
+          }
+        />
+        <Route path="*" element={<Navigate to={authed ? DEFAULT_PATH : '/login'} replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
 
-  return <CampShell onLogout={handleLogout} />;
+function CampRedirect() {
+  const { camp: campParam } = useParams();
+  if (!campParam || !isCampId(campParam)) {
+    return <Navigate to={campTabPath(DEFAULT_CAMP, 'kot')} replace />;
+  }
+  return <Navigate to={campTabPath(campParam, 'kot')} replace />;
 }
