@@ -175,9 +175,10 @@ export function ReportsTab({ calMonth, calYear }: ReportsTabProps) {
     } else if (rType === 'staff_info') {
       const rs = allStaff.allStaff.filter((s) => s.camp_id === rCamp);
       const compOffs = staff.compOffs;
+      const publicHolidays = staff.publicHolidays;
       const balanceLabel = (s: (typeof rs)[0]) => {
-        const b = getLeaveBalance(s, leaveRecords, compOffs, { year: yr, month: mn });
-        return `PL ${b.remPL}/${b.cPL} · CL ${b.remCL}/${b.cCL} · ML ${b.remML}/${b.cML} · WO ${b.remWO}/${b.cWO} · CO ${b.avCO}`;
+        const b = getLeaveBalance(s, leaveRecords, compOffs, { year: yr, month: mn }, publicHolidays);
+        return `PL ${b.remPL}/${b.cPL} · CL ${b.remCL}/${b.cCL} · ML ${b.remML}/${b.cML} · PH ${b.remPH}/${b.cPH} · WO ${b.remWO}/${b.cWO} · CO ${b.avCO}`;
       };
       if (fmt === 'csv') {
         dlCSV(

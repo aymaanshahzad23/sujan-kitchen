@@ -384,6 +384,95 @@ describe('comp off expiry helpers', () => {
   });
 });
 
+describe('public holiday leave', () => {
+  const holidays = [
+    { date: '2024-08-15', name: 'Independence Day' },
+    { date: '2024-10-02', name: 'Gandhi Jayanti' },
+  ];
+
+  it('credits PH on each holiday date in the calendar year', () => {
+    const bal = getLeaveBalance(staff, [], [], { year: 2024, month: 7 }, holidays);
+    expect(bal.cPH).toBe(1);
+    expect(bal.remPH).toBe(1);
+  });
+
+  it('does not credit PH before date of joining', () => {
+    const recent: StaffMember = { ...staff, doj: '2024-09-01' };
+    const bal = getLeaveBalance(recent, [], [], { year: 2024, month: 7 }, holidays);
+    expect(bal.cPH).toBe(0);
+  });
+
+  it('resets PH balance by calendar year', () => {
+    const bal = getLeaveBalance(staff, [], [], { year: 2025, month: 0 }, holidays);
+    expect(bal.cPH).toBe(0);
+    expect(bal.remPH).toBe(0);
+  });
+
+  it('deducts 1 PH and 1 CL when leave is taken on a public holiday', () => {
+    const leaves: LeaveRecord[] = [
+      {
+        id: 'l1',
+        staff_id: 'staff-1',
+        type: 'PL',
+        date_from: '2024-08-15',
+        date_to: '2024-08-15',
+        note: '',
+        status: 'approved',
+        splits: null,
+      },
+    ];
+    const bal = getLeaveBalance(staff, leaves, [], { year: 2024, month: 7 }, holidays);
+    expect(bal.usedPH).toBe(1);
+    expect(bal.remPH).toBe(0);
+    expect(bal.usedCL).toBe(1);
+    expect(bal.remCL).toBeCloseTo(4, 1);
+  });
+
+  it('requires PH and CL when booking leave on a public holiday', () => {
+    const err = validateLeaveApplication(
+      staff,
+      '2024-08-15',
+      '2024-08-15',
+      [],
+      'PL',
+      [],
+      [],
+      [staff],
+      { year: 2024, month: 7 },
+      holidays,
+    );
+    expect(err).toBeNull();
+  });
+
+  it('blocks public holiday leave when PH or CL balance is insufficient', () => {
+    const leaves: LeaveRecord[] = [
+      {
+        id: 'l1',
+        staff_id: 'staff-1',
+        type: 'CL',
+        date_from: '2024-08-01',
+        date_to: '2024-08-05',
+        note: '',
+        status: 'approved',
+        splits: null,
+      },
+    ];
+    const err = validateLeaveApplication(
+      staff,
+      '2024-08-15',
+      '2024-08-15',
+      [],
+      'PL',
+      leaves,
+      [],
+      [staff],
+      { year: 2024, month: 7 },
+      holidays,
+    );
+    expect(err).toMatch(/Casual Leave/);
+  });
+});
+
 describe('overlapDays', () => {
   it('counts intersection of ranges', () => {
     expect(overlapDays('2024-06-10', '2024-06-20', '2024-06-01', '2024-06-15')).toBe(6);

@@ -1,7 +1,7 @@
-import type { CompOff, Ingredient, LeaveRecord, LeaveStatus, LegacyStaff, RecipeLine, StaffMember } from '../types/database';
+import type { CompOff, Ingredient, LeaveRecord, LeaveStatus, LegacyStaff, PublicHoliday, RecipeLine, StaffMember } from '../types/database';
 import type { LeaveSplit } from '../types/database';
 import { LEAVE_TYPES, MONTH_NAMES } from '../constants';
-import { addDays, formatDateLocal, getSundaysInMonth, parseDateLocal } from './helpers';
+import { addDays, eachDateInRange, formatDateLocal, getSundaysInMonth, parseDateLocal } from './helpers';
 import { MAX_CONCURRENT_LEAVE, peakStaffLeaveDays } from './leaveCapacity';
 
 export interface LeaveBalance {
@@ -9,15 +9,98 @@ export interface LeaveBalance {
   cCL: number;
   cML: number;
   cWO: number;
+  cPH: number;
   usedPL: number;
   usedCL: number;
   usedML: number;
   usedWO: number;
+  usedPH: number;
   remPL: number;
   remCL: number;
   remML: number;
   remWO: number;
+  remPH: number;
   avCO: number;
+}
+
+export type PublicHolidayLike = Pick<PublicHoliday, 'date'> & { name?: string };
+
+export function isPublicHoliday(date: string, publicHolidays: PublicHolidayLike[]): boolean {
+  return publicHolidays.some((h) => h.date === date);
+}
+
+/** Latest date through which PH leave is credited for a viewed month */
+export function publicHolidayCreditThroughDate(
+  year: number,
+  month: number,
+  asOf: Date = new Date(),
+): string {
+  const { end } = monthBounds(year, month);
+  const today = formatDateLocal(asOf);
+  if (year < asOf.getFullYear()) return end;
+  if (year > asOf.getFullYear()) return end;
+  if (month < asOf.getMonth()) return end;
+  if (month > asOf.getMonth()) return end;
+  return today;
+}
+
+/** PH credited on each holiday date in the calendar year (resets 1 Jan) */
+export function countPublicHolidayCredits(
+  staff: StaffMember | LegacyStaff,
+  publicHolidays: PublicHolidayLike[],
+  year: number,
+  throughDate: string,
+): number {
+  return publicHolidays.filter(
+    (h) =>
+      h.date.startsWith(`${year}-`) &&
+      h.date <= throughDate &&
+      h.date >= staff.doj,
+  ).length;
+}
+
+/** Approved leave days that fall on public holidays (each costs 1 PH + 1 CL) */
+export function countPublicHolidayLeaveDays(
+  staffId: string,
+  leaveRecs: LeaveRecord[],
+  publicHolidays: PublicHolidayLike[],
+  year: number,
+  options?: { excludeLeaveId?: string },
+): number {
+  const phDates = new Set(
+    publicHolidays.filter((h) => h.date.startsWith(`${year}-`)).map((h) => h.date),
+  );
+  let total = 0;
+
+  leaveRecs
+    .filter((l) => l.staff_id === staffId && l.status === 'approved')
+    .forEach((l) => {
+      if (options?.excludeLeaveId && l.id === options.excludeLeaveId) return;
+      const end = l.date_to || l.date_from;
+      for (const dt of eachDateInRange(l.date_from, end)) {
+        if (phDates.has(dt)) total += 1;
+      }
+    });
+
+  return total;
+}
+
+export function publicHolidayDaysInRange(
+  fromDate: string,
+  toDate: string,
+  publicHolidays: PublicHolidayLike[],
+): string[] {
+  return eachDateInRange(fromDate, toDate).filter((d) => isPublicHoliday(d, publicHolidays));
+}
+
+export function analyzePublicHolidayLeaveImpact(
+  fromDate: string,
+  toDate: string,
+  publicHolidays: PublicHolidayLike[],
+): { phDates: string[]; nonPhDays: number; totalDays: number } {
+  const totalDays = daysBetween(fromDate, toDate);
+  const phDates = publicHolidayDaysInRange(fromDate, toDate, publicHolidays);
+  return { phDates, nonPhDays: totalDays - phDates.length, totalDays };
 }
 
 export const LEAVE_TYPE_ORDER = ['WO', 'PL', 'CL', 'ML', 'CO', 'LWP'] as const;
@@ -206,6 +289,7 @@ export function getLeaveBalance(
   leaveRecs: LeaveRecord[],
   compOffs: CompOff[],
   yearMonth?: { year: number; month: number },
+  publicHolidays: PublicHolidayLike[] = [],
 ): LeaveBalance {
   const now = new Date();
   const year = yearMonth?.year ?? now.getFullYear();
@@ -214,11 +298,15 @@ export function getLeaveBalance(
 
   const { cPL, cCL, cML } = computeAccruedLeave(s.doj, year, month);
   const cWO = getWeeklyOffCredit(year, month);
+  const phThrough = publicHolidayCreditThroughDate(year, month, now);
+  const cPH = countPublicHolidayCredits(s, publicHolidays, year, phThrough);
 
   const usedPL = countUsedDays(staffId, 'PL', leaveRecs);
-  const usedCL = countUsedDays(staffId, 'CL', leaveRecs);
+  const usedCLBase = countUsedDays(staffId, 'CL', leaveRecs);
   const usedML = countUsedDays(staffId, 'ML', leaveRecs);
   const usedWO = countTypeDaysInMonth(staffId, 'WO', leaveRecs, year, month);
+  const usedPH = countPublicHolidayLeaveDays(staffId, leaveRecs, publicHolidays, year);
+  const usedCL = usedCLBase + usedPH;
   const asOf = asOfDate(yearMonth, now);
   const avCO = getActiveCompOffCount(staffId, compOffs, asOf);
 
@@ -227,14 +315,17 @@ export function getLeaveBalance(
     cCL,
     cML,
     cWO,
+    cPH,
     usedPL,
     usedCL,
     usedML,
     usedWO,
+    usedPH,
     remPL: Math.max(0, cPL - usedPL),
     remCL: Math.max(0, cCL - usedCL),
     remML: Math.max(0, cML - usedML),
     remWO: Math.max(0, cWO - usedWO),
+    remPH: Math.max(0, cPH - usedPH),
     avCO,
   };
 }
@@ -344,23 +435,39 @@ export function validateLeaveApplication(
   compOffs: CompOff[],
   allStaff: StaffMember[],
   yearMonth?: { year: number; month: number },
+  publicHolidays: PublicHolidayLike[] = [],
   options?: { excludeLeaveId?: string },
 ): string | null {
   const from = parseDateLocal(fromDate);
   const to = parseDateLocal(toDate);
   if (to < from) return 'To date cannot be before From date.';
 
-  const totalDays = daysBetween(fromDate, toDate);
-  const finalSplits = buildLeaveSplits(totalDays, splits, singleType);
+  const { phDates, nonPhDays, totalDays } = analyzePublicHolidayLeaveImpact(
+    fromDate,
+    toDate,
+    publicHolidays,
+  );
+  const phDaysCount = phDates.length;
 
-  if (splits.length > 0) {
-    const splitDaysTotal = splits.reduce((sum, x) => sum + x.days, 0);
-    if (splitDaysTotal !== totalDays) {
-      return `Split days total (${splitDaysTotal}) must equal leave period days (${totalDays}). Please adjust.`;
+  for (const phDate of phDates) {
+    if (phDate < s.doj) {
+      return `Public holiday leave on ${phDate} is not available before ${s.name}'s date of joining (${s.doj}).`;
     }
   }
 
-  const bal = getLeaveBalance(s, leaveRecs, compOffs, yearMonth);
+  const leaveYear = from.getFullYear();
+  const creditThrough = toDate > formatDateLocal(new Date()) ? toDate : formatDateLocal(new Date());
+  const cPH = countPublicHolidayCredits(s, publicHolidays, leaveYear, creditThrough);
+  const usedPH = countPublicHolidayLeaveDays(
+    s.id,
+    leaveRecs,
+    publicHolidays,
+    leaveYear,
+    options,
+  );
+  const remPH = Math.max(0, cPH - usedPH);
+
+  const bal = getLeaveBalance(s, leaveRecs, compOffs, yearMonth, publicHolidays);
   const balMap: Record<string, number> = {
     PL: bal.remPL,
     CL: bal.remCL,
@@ -375,15 +482,40 @@ export function validateLeaveApplication(
     ML: 'Medical Leave',
     CO: 'Comp Off',
     WO: 'Weekly Off',
+    PH: 'Public Holiday',
     LWP: 'Leave Without Pay',
   };
 
-  for (const sp of finalSplits) {
-    const available = balMap[sp.type] ?? 9999;
-    if (sp.days > available) {
-      return `Insufficient ${typeNames[sp.type] || sp.type} balance for ${s.name}.\nRequested: ${sp.days} day(s) · Available: ${Math.floor(available * 10) / 10} day(s).\nLeave not applied.`;
+  if (phDaysCount > 0) {
+    if (phDaysCount > remPH) {
+      return `Insufficient Public Holiday balance for ${s.name}.\nRequested on ${phDaysCount} public holiday day(s) · Available: ${remPH} day(s).\nLeave not applied.`;
+    }
+    if (phDaysCount > bal.remCL) {
+      return `Taking leave on a public holiday also requires Casual Leave.\nNeeded: ${phDaysCount} CL day(s) · Available: ${Math.floor(bal.remCL * 10) / 10} day(s).\nLeave not applied.`;
     }
   }
+
+  let finalSplits: LeaveSplit[] = [];
+  if (nonPhDays > 0) {
+    finalSplits = buildLeaveSplits(nonPhDays, splits, singleType);
+    if (splits.length > 0) {
+      const splitDaysTotal = splits.reduce((sum, x) => sum + x.days, 0);
+      if (splitDaysTotal !== nonPhDays) {
+        return `Split days total (${splitDaysTotal}) must equal non-holiday days (${nonPhDays}). Public holiday days in this period are charged as 1 PH + 1 CL each.`;
+      }
+    }
+
+    for (const sp of finalSplits) {
+      const available = balMap[sp.type] ?? 9999;
+      if (sp.days > available) {
+        return `Insufficient ${typeNames[sp.type] || sp.type} balance for ${s.name}.\nRequested: ${sp.days} day(s) · Available: ${Math.floor(available * 10) / 10} day(s).\nLeave not applied.`;
+      }
+    }
+  } else if (splits.length > 0) {
+    return 'Leave splits are not needed when the full period falls on public holidays (charged as 1 PH + 1 CL per day).';
+  }
+
+  if (totalDays === 0) return 'Leave period must include at least one day.';
 
   const timelineErr = validateStaffLeaveTimeline(s.id, fromDate, toDate, leaveRecs, options);
   if (timelineErr) return timelineErr;

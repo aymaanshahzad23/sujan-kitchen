@@ -19,10 +19,10 @@ import {
   SECTIONS_STAFF,
   CAMP_NAMES,
 } from '../constants';
-import { getLeaveBalance, validateLeaveApplication, validateStaffLeaveConflicts, staffOnLeaveOnDate, leaveTypeOptions, getCompOffsToConsume, countCoDaysInSplits, buildLeaveSplits } from '../utils/leave';
+import { getLeaveBalance, validateLeaveApplication, validateStaffLeaveConflicts, staffOnLeaveOnDate, leaveTypeOptions, getCompOffsToConsume, countCoDaysInSplits, buildLeaveSplits, analyzePublicHolidayLeaveImpact, publicHolidayDaysInRange } from '../utils/leave';
 import { leaveRecordOverloadDays, MAX_CONCURRENT_LEAVE } from '../utils/leaveCapacity';
 import { addDays, formatDateLocal, getDaysInMonth, getMonthDates, getSundaysInMonth, parseDateLocal } from '../utils/helpers';
-import type { CompOff, LeaveRecord, LeaveSplit, LeaveStatus, StaffMember } from '../types/database';
+import type { CompOff, LeaveRecord, LeaveSplit, LeaveStatus, PublicHoliday, StaffMember } from '../types/database';
 
 import type { StaffSubTab } from '../constants';
 
@@ -63,6 +63,7 @@ function BalancePanel({
   staffMember,
   leaveRecords,
   compOffs,
+  publicHolidays,
   fromDate,
   toDate,
   lvType,
@@ -73,6 +74,7 @@ function BalancePanel({
   staffMember: StaffMember;
   leaveRecords: LeaveRecord[];
   compOffs: CompOff[];
+  publicHolidays: PublicHoliday[];
   fromDate: string;
   toDate: string;
   lvType: string;
@@ -80,10 +82,12 @@ function BalancePanel({
   showSplitSummary?: boolean;
   yearMonth: { year: number; month: number };
 }) {
-  const b = getLeaveBalance(staffMember, leaveRecords, compOffs, yearMonth);
+  const b = getLeaveBalance(staffMember, leaveRecords, compOffs, yearMonth, publicHolidays);
   const fromD = fromDate ? new Date(fromDate) : null;
   const toD = toDate ? new Date(toDate) : fromD;
   const totalDays = fromD && toD ? Math.max(0, Math.round((toD.getTime() - fromD.getTime()) / 86400000) + 1) : 0;
+  const phDays =
+    fromDate && toDate ? publicHolidayDaysInRange(fromDate, toDate || fromDate, publicHolidays).length : 0;
 
   return (
     <div style={{ background: '#f7f4f0', border: '1px solid #d9cdb8', borderRadius: 3, padding: '10px 14px', marginBottom: 10, fontSize: 12 }}>
@@ -94,6 +98,7 @@ function BalancePanel({
           ['PL', b.remPL, b.cPL, 'Privilege'],
           ['CL', b.remCL, b.cCL, 'Casual'],
           ['ML', b.remML, b.cML, 'Medical'],
+          ['PH', b.remPH, b.cPH, 'Public Holiday'],
           ['CO', b.avCO, b.avCO, 'Comp Off'],
         ] as const).map(([k, rem, tot, lbl]) => (
           <div key={k} style={{ textAlign: 'center', minWidth: 70 }}>
@@ -108,9 +113,18 @@ function BalancePanel({
             <div style={{ fontSize: 16, fontWeight: 500, color: PR }}>
               {totalDays} day{totalDays !== 1 ? 's' : ''}
             </div>
+            {phDays > 0 && (
+              <div style={{ fontSize: 10, color: '#e91e63', fontStyle: 'italic' }}>
+                {phDays} public holiday day{phDays !== 1 ? 's' : ''} → {phDays} PH + {phDays} CL
+              </div>
+            )}
             {showSplitSummary && (
               <div style={{ fontSize: 10, color: MUT }}>
-                {lvSplits.length === 0 ? `All as ${lvType}` : lvSplits.map((sp) => `${sp.days}d ${sp.type}`).join(' + ')}
+                {lvSplits.length === 0
+                  ? phDays === totalDays
+                    ? 'Charged as PH + CL'
+                    : `Non-holiday days as ${lvType}`
+                  : lvSplits.map((sp) => `${sp.days}d ${sp.type}`).join(' + ')}
               </div>
             )}
           </div>
@@ -356,14 +370,11 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
   }, [campLeaveRecords, allStaffMembers, campId]);
 
   const selectedStaffMember = lvStaff ? campStaff.find((x) => x.id === lvStaff) : null;
-  const leaveTotalDays =
-    lvDate && selectedStaffMember
-      ? (() => {
-          const fromD = new Date(lvDate);
-          const toD = lvDateTo ? new Date(lvDateTo) : fromD;
-          return Math.max(0, Math.round((toD.getTime() - fromD.getTime()) / 86400000) + 1);
-        })()
-      : 0;
+
+  const leaveNonPhDays = useMemo(() => {
+    if (!lvDate) return 0;
+    return analyzePublicHolidayLeaveImpact(lvDate, lvDateTo || lvDate, publicHolidays).nonPhDays;
+  }, [lvDate, lvDateTo, publicHolidays]);
 
   const rosterYearMonth = useMemo(() => ({ year: calYear, month: calMonth }), [calYear, calMonth]);
 
@@ -433,18 +444,22 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
       alert('To date cannot be before From date.');
       return;
     }
-    const totalDays = Math.round((to.getTime() - from.getTime()) / 86400000) + 1;
+    const { nonPhDays } = analyzePublicHolidayLeaveImpact(fromDate, toDate, publicHolidays);
 
     let splits: LeaveSplit[] = [];
     if (lvSplits.length > 0) {
       const splitDaysTotal = lvSplits.reduce((sum, x) => sum + x.days, 0);
-      if (splitDaysTotal !== totalDays) {
-        alert(`Split days total (${splitDaysTotal}) must equal leave period days (${totalDays}). Please adjust.`);
+      if (splitDaysTotal !== nonPhDays) {
+        alert(
+          nonPhDays === 0
+            ? 'Leave splits are not needed when the full period falls on public holidays (charged as 1 PH + 1 CL per day).'
+            : `Split days total (${splitDaysTotal}) must equal non-holiday days (${nonPhDays}). Public holiday days are charged as 1 PH + 1 CL each.`,
+        );
         return;
       }
       splits = lvSplits;
-    } else {
-      splits = [{ type: lvType, days: totalDays }];
+    } else if (nonPhDays > 0) {
+      splits = [{ type: lvType, days: nonPhDays }];
     }
 
     const err = validateLeaveApplication(
@@ -457,13 +472,14 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
       compOffs,
       allStaff.allStaff,
       leaveYearMonth,
+      publicHolidays,
     );
     if (err) {
       alert(`⚠ ${err}`);
       return;
     }
 
-    const primaryType = splits.length === 1 ? splits[0].type : 'MULTI';
+    const primaryType = splits.length === 1 ? splits[0].type : splits.length > 1 ? 'MULTI' : 'PH';
 
     try {
       await applyLeave({
@@ -569,6 +585,7 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
           staffMember={selectedStaffMember}
           leaveRecords={leaveRecords}
           compOffs={compOffs}
+          publicHolidays={publicHolidays}
           fromDate={lvDate}
           toDate={lvDateTo}
           lvType={lvType}
@@ -584,9 +601,9 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
         </div>
       )}
 
-      {lvStaff && lvDate && leaveTotalDays > 0 && (
+      {lvStaff && lvDate && leaveNonPhDays > 0 && (
         <SplitSection
-          totalDays={leaveTotalDays}
+          totalDays={leaveNonPhDays}
           lvSplits={lvSplits}
           setLvSplits={setLvSplits}
           lvSplitType={lvSplitType}
@@ -624,6 +641,9 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
             </span>
             <span>
               <strong style={{ color: PUR }}>Comp Off:</strong> Unused weekly offs auto-credit on 1st of next month — <strong>60 days total</strong> from the WO month (includes time as WO + CO)
+            </span>
+            <span>
+              <strong style={{ color: '#e91e63' }}>Public Holiday:</strong> +1 PH credited on each holiday (if employed) — resets <strong>31 Dec</strong> · leave on a PH day costs <strong>1 PH + 1 CL</strong>
             </span>
           </div>
         </div>
@@ -725,6 +745,7 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
                 <th>PL Rem</th>
                 <th>CL Rem</th>
                 <th>ML Rem</th>
+                <th>PH Rem</th>
                 <th>Weekly Off</th>
                 <th>Comp Off</th>
                 <th>Phone</th>
@@ -733,7 +754,7 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
             </thead>
             <tbody>
               {campStaff.map((s) => {
-                const b = getLeaveBalance(s, leaveRecords, compOffs, rosterYearMonth);
+                const b = getLeaveBalance(s, leaveRecords, compOffs, rosterYearMonth, publicHolidays);
                 return (
                   <tr
                     key={s.id}
@@ -757,6 +778,11 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
                     <td>
                       <span style={{ background: b.remML > 0 ? GRNL : REDL, color: b.remML > 0 ? GRN : RED, borderRadius: 2, padding: '1px 6px', fontSize: 11 }}>
                         {b.remML}/{b.cML}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ background: b.remPH > 0 ? '#fce4ec' : REDL, color: b.remPH > 0 ? '#e91e63' : RED, borderRadius: 2, padding: '1px 6px', fontSize: 11 }}>
+                        {b.remPH}/{b.cPH}
                       </span>
                     </td>
                     <td>
@@ -964,6 +990,7 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
                                   compOffs,
                                   allStaff.allStaff,
                                   ym,
+                                  publicHolidays,
                                   { excludeLeaveId: l.id },
                                 );
                                 if (err) {
@@ -1199,6 +1226,9 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
       <>
         <div className="card">
           <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 8 }}>Add Public Holiday</div>
+          <p style={{ fontSize: 11, color: MUT, fontStyle: 'italic', marginBottom: 10 }}>
+            Each employee earns 1 Public Holiday leave on the holiday date (if already employed). Unused PH balances expire after 31 December. Booking leave on a PH day deducts 1 PH and 1 Casual Leave.
+          </p>
           <div className="row">
             <div className="field">
               <label>Date</label>
