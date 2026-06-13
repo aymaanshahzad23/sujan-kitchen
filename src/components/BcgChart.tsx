@@ -6,6 +6,8 @@ import {
   chartYAxisTicks,
   layoutChartPoints,
   CHART,
+  BCG_BUBBLE_FILL_OPACITY,
+  BCG_BUBBLE_HOVER_OPACITY,
   type ClassifiedDish,
   type PlacedPoint,
 } from '../utils/bcgChart';
@@ -45,15 +47,19 @@ export function BcgChart({
   const { aX, aY } = chartAvgLines(avgQty, avgCost, maxQty, minCost, maxCost);
   const xTicks = useMemo(() => chartXAxisTicks(minCost, maxCost), [minCost, maxCost]);
   const yTicks = useMemo(() => chartYAxisTicks(), []);
-  const soldCount = items.filter((d) => d.qty > 0).length;
+  const soldCount = items.length;
 
   return (
     <>
       <div style={{ fontSize: 11, color: '#6b5d4f', fontStyle: 'italic', marginBottom: 8 }}>
-        X = Cost Price (Rs) · Y = Popularity % · Dashed = averages
-        {periodLabel && (
+        X = Cost Price (Rs) · Y = Popularity % · Dashed = averages · Zero-sale dishes hidden
+        {periodLabel ? (
           <span style={{ marginLeft: 8, color: '#8b6f47' }}>
             · {periodLabel} · {soldCount} dish{soldCount !== 1 ? 'es' : ''} with sales
+          </span>
+        ) : (
+          <span style={{ marginLeft: 8, color: '#8b6f47' }}>
+            · {soldCount} dish{soldCount !== 1 ? 'es' : ''} with sales
           </span>
         )}
       </div>
@@ -126,7 +132,6 @@ export function BcgChart({
         {placed.map((d: PlacedPoint) => {
           const q = Q[d.quad];
           const isH = hov === d.id;
-          const isZero = d.qty === 0;
           const r = isH ? d.r + 3 : d.r;
           return (
             <g
@@ -146,9 +151,9 @@ export function BcgChart({
                 cy={d.cy}
                 r={r}
                 fill={q.color}
-                opacity={isH ? 0.95 : isZero ? 0.35 : 0.72}
-                stroke={isH ? '#2a2418' : isZero ? q.color : 'none'}
-                strokeWidth={isH ? 1.5 : 0.8}
+                fillOpacity={isH ? BCG_BUBBLE_HOVER_OPACITY : BCG_BUBBLE_FILL_OPACITY}
+                stroke={isH ? '#2a2418' : 'none'}
+                strokeWidth={isH ? 1.5 : 0}
               />
               <text
                 x={d.cx}

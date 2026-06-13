@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { ClassifiedDish } from './bcgChart';
 import {
   bubbleRadius,
+  chartDataset,
   chartXCost,
   chartYPop,
   layoutChartPoints,
   popularityPct,
+  rawBubbleRadius,
 } from './bcgChart';
 
 function dish(id: string, qty: number, costPrice: number): ClassifiedDish {
@@ -36,8 +38,20 @@ describe('bcg chart coordinates', () => {
   });
 });
 
+describe('chartDataset', () => {
+  it('hides zero-sale dishes from the chart', () => {
+    const classified = [
+      dish('sold', 12, 200),
+      dish('unsold', 0, 150),
+    ];
+    const chart = chartDataset(classified, false);
+    expect(chart.items).toHaveLength(1);
+    expect(chart.items[0].id).toBe('sold');
+  });
+});
+
 describe('layoutChartPoints', () => {
-  it('keeps jittered bubbles inside chart bounds', () => {
+  it('places bubbles at cost × popularity coordinates within chart bounds', () => {
     const placed = layoutChartPoints(
       Array.from({ length: 8 }, (_, i) => dish(`d${i}`, 5 + i * 2, 120 + i * 30)),
       20,
@@ -53,37 +67,32 @@ describe('layoutChartPoints', () => {
       expect(p.popPct).toBeLessThanOrEqual(100);
       expect(p.r).toBeGreaterThanOrEqual(12);
     }
+    expect(placed[0].r).toBeGreaterThan(15);
   });
 
-  it('separates overlapping bubbles at identical coordinates', () => {
-    const items = [
-      dish('a', 10, 200),
-      dish('b', 10, 200),
-      dish('c', 10, 205),
-      dish('d', 10, 205),
-    ];
+  it('allows overlap when dishes share similar cost and popularity', () => {
+    const items = [dish('a', 10, 200), dish('b', 10, 200)];
     const placed = layoutChartPoints(items, 10, 100, 350);
-    for (let i = 0; i < placed.length; i++) {
-      for (let j = i + 1; j < placed.length; j++) {
-        const dx = placed[i].cx - placed[j].cx;
-        const dy = placed[i].cy - placed[j].cy;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        expect(dist).toBeGreaterThanOrEqual(placed[i].r + placed[j].r + 2);
-      }
-    }
+    expect(placed[0].cx).toBe(placed[1].cx);
+    expect(placed[0].cy).toBe(placed[1].cy);
   });
 });
 
 describe('bubbleRadius', () => {
-  it('uses original HTML dashboard sizing (min 12px, scales with sqrt qty)', () => {
-    expect(bubbleRadius(0)).toBe(12);
-    expect(bubbleRadius(1)).toBe(12);
-    expect(bubbleRadius(25)).toBeCloseTo(13, 0);
-    expect(bubbleRadius(100)).toBeCloseTo(16, 0);
+  it('uses original HTML formula at high volumes', () => {
+    expect(rawBubbleRadius(0)).toBe(12);
+    expect(rawBubbleRadius(25)).toBeCloseTo(13, 0);
+    expect(rawBubbleRadius(300)).toBeCloseTo(20.4, 0);
+  });
+
+  it('boosts radii toward HTML on-screen size when period totals are lower', () => {
+    expect(bubbleRadius(25, 25)).toBeCloseTo(20.4, 0);
+    expect(bubbleRadius(11, 25)).toBeGreaterThan(17);
+    expect(bubbleRadius(300, 300)).toBeCloseTo(20.4, 0);
   });
 
   it('never caps radius at compact popularity-based size (~10px)', () => {
-    expect(bubbleRadius(5)).toBeGreaterThanOrEqual(12);
-    expect(bubbleRadius(100)).toBeGreaterThan(12);
+    expect(bubbleRadius(5, 25)).toBeGreaterThanOrEqual(12);
+    expect(bubbleRadius(25, 25)).toBeGreaterThan(15);
   });
 });

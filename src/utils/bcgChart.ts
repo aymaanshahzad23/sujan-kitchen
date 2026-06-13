@@ -56,10 +56,10 @@ export function chartDataset(
   };
 
   if (!periodFiltered) {
-    const maxQty = Math.max(...classified.map((d) => d.qty), 1);
+    const sold = classified.filter((d) => d.qty > 0);
+    const maxQty = Math.max(...sold.map((d) => d.qty), 1);
     const avgQty = classified.reduce((s, d) => s + d.qty, 0) / (classified.length || 1);
     const avgCost = classified.reduce((s, d) => s + d.costPrice, 0) / (classified.length || 1);
-    const sold = classified.filter((d) => d.qty > 0);
     const { minCost, maxCost } = costRange(sold.length ? sold : classified);
     return { items: sold, avgQty, avgCost, maxQty, minCost, maxCost };
   }
@@ -79,25 +79,33 @@ export function chartDataset(
 
 const CHART = { left: 50, right: 490, top: 28, bottom: 355, width: 440, height: 327 };
 const CHART_PAD = 14;
-const BUBBLE_GAP = 5;
+
+/** Chart fill — semi-transparent so overlaps blend visually */
+export const BCG_BUBBLE_FILL_OPACITY = 0.5;
+export const BCG_BUBBLE_HOVER_OPACITY = 0.82;
 
 /** Original sujan-dashboard.html bubble sizing — do not replace with popularity-based caps */
 export const BCG_BUBBLE_MIN_RADIUS = 12;
 export const BCG_BUBBLE_QTY_BASE = 10;
 export const BCG_BUBBLE_QTY_SCALE = 0.6;
+/** Typical all-time top-seller qty in the HTML demo — used to match on-screen bubble size */
+export const BCG_BUBBLE_HTML_REFERENCE_TOP_QTY = 300;
 
-function hashUnit(id: string, salt = 0): number {
-  let h = salt;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
-  return ((h % 1000) + 1000) % 1000 / 1000;
-}
-
-/** Large bubbles scaled by sales volume — matches original HTML dashboard */
-export function bubbleRadius(qty: number): number {
+export function rawBubbleRadius(qty: number): number {
   return Math.max(
     BCG_BUBBLE_MIN_RADIUS,
     BCG_BUBBLE_QTY_BASE + Math.sqrt(Math.max(qty, 0)) * BCG_BUBBLE_QTY_SCALE,
   );
+}
+
+/** Large bubbles scaled by sales volume — matches original HTML dashboard on-screen size */
+export function bubbleRadius(qty: number, maxQty: number = 1): number {
+  const raw = rawBubbleRadius(qty);
+  const topRaw = rawBubbleRadius(maxQty);
+  const htmlTopR = rawBubbleRadius(BCG_BUBBLE_HTML_REFERENCE_TOP_QTY);
+  if (topRaw >= htmlTopR) return raw;
+  const scale = htmlTopR / topRaw;
+  return Math.max(BCG_BUBBLE_MIN_RADIUS, Math.min(htmlTopR, raw * scale));
 }
 
 function clampPoint(cx: number, cy: number, r: number) {
@@ -105,16 +113,6 @@ function clampPoint(cx: number, cy: number, r: number) {
     cx: Math.max(CHART.left + r + 2, Math.min(CHART.right - r - 2, cx)),
     cy: Math.max(CHART.top + r + 2, Math.min(CHART.bottom - r - 2, cy)),
   };
-}
-
-function bubblesOverlap(
-  a: { cx: number; cy: number; r: number },
-  b: { cx: number; cy: number; r: number },
-  gap = BUBBLE_GAP,
-): boolean {
-  const dx = a.cx - b.cx;
-  const dy = a.cy - b.cy;
-  return Math.sqrt(dx * dx + dy * dy) < a.r + b.r + gap;
 }
 
 /** X axis: cost price (Rs) — low left, high right */
@@ -133,108 +131,25 @@ export function chartYPop(pct: number): number {
 
 export type PlacedPoint = ClassifiedDish & { cx: number; cy: number; r: number; popPct: number };
 
-type LayoutDraft = PlacedPoint & { idealCx: number; idealCy: number };
-
-/** Spread overlapping bubbles so labels remain readable */
+/** Place each menu dish at its cost × popularity coordinates — overlap is fine */
 export function layoutChartPoints(
   items: ClassifiedDish[],
   maxQty: number,
   minCost: number,
   maxCost: number,
 ): PlacedPoint[] {
-  const raw = items
+  return items
     .map((d) => {
       const popPct = popularityPct(d.qty, maxQty);
-      const r = bubbleRadius(d.qty);
-      const jitterX = (hashUnit(d.id, 1) - 0.5) * 10;
-      const jitterY = (hashUnit(d.id, 2) - 0.5) * 8;
-      const idealCx = chartXCost(d.costPrice, minCost, maxCost) + jitterX;
-      const idealCy = chartYPop(popPct) + jitterY;
-      const { cx, cy } = clampPoint(idealCx, idealCy, r);
-      return { ...d, popPct, idealCx, idealCy, cx, cy, r };
+      const r = bubbleRadius(d.qty, maxQty);
+      const { cx, cy } = clampPoint(
+        chartXCost(d.costPrice, minCost, maxCost),
+        chartYPop(popPct),
+        r,
+      );
+      return { ...d, popPct, cx, cy, r };
     })
-    .sort((a, b) => b.popPct - a.popPct || a.costPrice - b.costPrice);
-
-  const placed: LayoutDraft[] = [];
-  const golden = 2.399963;
-
-  for (const p of raw) {
-    let { cx, cy } = p;
-    let attempts = 0;
-
-    while (attempts < 64) {
-      const hit = placed.find((q) => bubblesOverlap({ cx, cy, r: p.r }, q));
-      if (!hit) break;
-      const angle = attempts * golden;
-      const radius = (p.r + hit.r + BUBBLE_GAP) * (0.75 + attempts * 0.08);
-      cx = p.idealCx + Math.cos(angle) * radius;
-      cy = p.idealCy + Math.sin(angle) * radius;
-      ({ cx, cy } = clampPoint(cx, cy, p.r));
-      attempts++;
-    }
-
-    placed.push({ ...p, cx, cy });
-  }
-
-  for (let pass = 0; pass < 8; pass++) {
-    for (let i = 0; i < placed.length; i++) {
-      for (let j = i + 1; j < placed.length; j++) {
-        const a = placed[i];
-        const b = placed[j];
-        const dx = b.cx - a.cx;
-        const dy = b.cy - a.cy;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 0.001;
-        const minDist = a.r + b.r + BUBBLE_GAP;
-        if (dist >= minDist) continue;
-        const push = (minDist - dist) / 2;
-        const nx = dx / dist;
-        const ny = dy / dist;
-        const aPos = clampPoint(a.cx - nx * push, a.cy - ny * push, a.r);
-        const bPos = clampPoint(b.cx + nx * push, b.cy + ny * push, b.r);
-        a.cx = aPos.cx;
-        a.cy = aPos.cy;
-        b.cx = bPos.cx;
-        b.cy = bPos.cy;
-      }
-    }
-
-    const pull = pass < 6 ? 0.1 : 0;
-    if (pull > 0) {
-      for (const p of placed) {
-        p.cx += (p.idealCx - p.cx) * pull;
-        p.cy += (p.idealCy - p.cy) * pull;
-        ({ cx: p.cx, cy: p.cy } = clampPoint(p.cx, p.cy, p.r));
-      }
-    }
-  }
-
-  for (let fix = 0; fix < 24; fix++) {
-    let moved = false;
-    for (let i = 0; i < placed.length; i++) {
-      for (let j = i + 1; j < placed.length; j++) {
-        const a = placed[i];
-        const b = placed[j];
-        const dx = b.cx - a.cx;
-        const dy = b.cy - a.cy;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 0.001;
-        const minDist = a.r + b.r + BUBBLE_GAP;
-        if (dist >= minDist) continue;
-        const push = (minDist - dist) / 2 + 0.5;
-        const nx = dx / dist;
-        const ny = dy / dist;
-        const aPos = clampPoint(a.cx - nx * push, a.cy - ny * push, a.r);
-        const bPos = clampPoint(b.cx + nx * push, b.cy + ny * push, b.r);
-        if (aPos.cx !== a.cx || aPos.cy !== a.cy || bPos.cx !== b.cx || bPos.cy !== b.cy) moved = true;
-        a.cx = aPos.cx;
-        a.cy = aPos.cy;
-        b.cx = bPos.cx;
-        b.cy = bPos.cy;
-      }
-    }
-    if (!moved) break;
-  }
-
-  return placed.map(({ idealCx: _i, idealCy: _j, ...rest }) => rest as PlacedPoint);
+    .sort((a, b) => a.popPct - b.popPct || a.costPrice - b.costPrice);
 }
 
 export function chartAvgLines(
