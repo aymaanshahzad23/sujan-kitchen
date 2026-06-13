@@ -13,6 +13,7 @@ import {
   prepareGuestIdentity,
   validateGuestRegistration,
 } from '../utils/guests';
+import { punchGuestKotWithProfileSync } from '../utils/guestDishes';
 
 type GuestSub = 'list' | 'add' | 'profile';
 type GuestFilter = 'all' | 'in-house' | 'expected' | 'checked-out';
@@ -485,7 +486,10 @@ export function GuestsTab() {
                 <PunchGuestOrderForm
                   guest={g}
                   dishes={campDishes.map((d) => ({ id: d.id, name: d.name }))}
-                  onPunch={(payload) => kots.punchKot(payload)}
+                  onPunch={async (payload) => {
+                    const dish = campDishes.find((d) => d.id === payload.dish_id);
+                    await punchGuestKotWithProfileSync(kots.punchKot, addGuestDish, dish, payload);
+                  }}
                 />
               </div>
             )}
@@ -544,7 +548,7 @@ export function GuestsTab() {
             <div style={{ borderTop: '1px solid #d9cdb8', paddingTop: 12 }}>
               <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>Dishes Consumed — Guest Profile Log</div>
               <div style={{ fontSize: 11, color: MUT, fontStyle: 'italic', marginBottom: 8 }}>
-                Separate from KOT — for guest preference tracking only
+                Synced with KOT Log — every punched order appears here automatically. Add notes for preferences.
               </div>
               <div className="card" style={{ background: '#f7f4f0' }}>
                 <div className="row">

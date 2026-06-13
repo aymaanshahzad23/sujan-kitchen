@@ -1,5 +1,7 @@
 import type { CampId } from '../types/database';
 import { buildProfileKey, buildStayKey, formatVisitOrdinal } from '../utils/guests';
+import { mealFromDishCategory } from '../utils/guestDishes';
+import { DISHES_RAW } from './seedData';
 import { dishUuid, guestUuid, profileUuid } from './uuids';
 
 /** Demo "today" — keep seed aligned with product screenshots */
@@ -402,25 +404,23 @@ export type DemoGuestDishLogRow = {
   notes: string;
 };
 
-export const DEMO_GUEST_DISH_LOGS: DemoGuestDishLogRow[] = [
-  // Current in-house
-  { guestLegacyId: 1, camp: 'jawai', dishLegacyId: 2, date: '2026-06-11', meal: 'Breakfast', notes: "Loved Ranger's Breakfast — repeat tomorrow" },
-  { guestLegacyId: 2, camp: 'jawai', dishLegacyId: 23, date: '2026-06-11', meal: 'Dinner', notes: 'Godwar highlight' },
-  { guestLegacyId: 3, camp: 'jawai', dishLegacyId: 3, date: '2026-06-10', meal: 'Breakfast', notes: 'GF quinoa hash — approved' },
-  { guestLegacyId: 4, camp: 'jawai', dishLegacyId: 7, date: '2026-06-12', meal: 'Lunch', notes: 'Banana leaf fish — pescatarian favourite' },
-  { guestLegacyId: 21, camp: 'sherbagh', dishLegacyId: 110, date: '2026-06-10', meal: 'Breakfast', notes: "Governor General's — special occasion" },
-  { guestLegacyId: 22, camp: 'sherbagh', dishLegacyId: 134, date: '2026-06-12', meal: 'Dinner', notes: 'Vegetarian thali — no onion-garlic Tue' },
-  { guestLegacyId: 31, camp: 'serai', dishLegacyId: 239, date: '2026-06-09', meal: 'Dinner', notes: 'Thar Murgh Thali — excellent' },
-  { guestLegacyId: 32, camp: 'serai', dishLegacyId: 238, date: '2026-06-11', meal: 'Dessert', notes: 'Brownie for child — small portion' },
-  { guestLegacyId: 33, camp: 'serai', dishLegacyId: 227, date: '2026-06-12', meal: 'Dinner', notes: 'River sole — light prep' },
-  // Past stays — preference memory for returning guests
-  { guestLegacyId: 9, camp: 'jawai', dishLegacyId: 2, date: '2025-02-15', meal: 'Breakfast', notes: 'Anniversary breakfast — same dish requested again 2026' },
-  { guestLegacyId: 12, camp: 'jawai', dishLegacyId: 23, date: '2025-11-13', meal: 'Dinner', notes: 'Godwar thali — repeat on every visit' },
-  { guestLegacyId: 15, camp: 'jawai', dishLegacyId: 26, date: '2025-03-20', meal: 'Dinner', notes: 'First Godwar dinner — started the tradition' },
-  { guestLegacyId: 25, camp: 'sherbagh', dishLegacyId: 110, date: '2025-09-15', meal: 'Breakfast', notes: 'Governor General — must have on return' },
-  { guestLegacyId: 35, camp: 'serai', dishLegacyId: 228, date: '2026-03-08', meal: 'Dinner', notes: 'Wood oven chicken — ordered again this stay' },
-  { guestLegacyId: 23, camp: 'sherbagh', dishLegacyId: 120, date: '2026-06-09', meal: 'Lunch', notes: 'Camp curry — nut-free confirmed' },
-];
+export const DEMO_GUEST_DISH_LOG_NOTE_OVERRIDES: Record<string, string> = {
+  '1|2|2026-06-11': "Loved Ranger's Breakfast — repeat tomorrow",
+  '2|23|2026-06-11': 'Godwar highlight',
+  '3|3|2026-06-10': 'GF quinoa hash — approved',
+  '4|7|2026-06-12': 'Banana leaf fish — pescatarian favourite',
+  '21|110|2026-06-10': "Governor General's — special occasion",
+  '22|134|2026-06-12': 'Vegetarian thali — no onion-garlic Tue',
+  '31|239|2026-06-09': 'Thar Murgh Thali — excellent',
+  '32|238|2026-06-11': 'Brownie for child — small portion',
+  '33|227|2026-06-12': 'River sole — light prep',
+  '9|2|2025-02-15': 'Anniversary breakfast — same dish requested again 2026',
+  '12|23|2025-11-13': 'Godwar thali — repeat on every visit',
+  '15|26|2025-03-20': 'First Godwar dinner — started the tradition',
+  '25|110|2025-09-15': 'Governor General — must have on return',
+  '35|228|2026-03-08': 'Wood oven chicken — ordered again this stay',
+  '23|120|2026-06-09': 'Camp curry — nut-free confirmed',
+};
 
 export type DemoKotRow = {
   camp: CampId;
@@ -561,6 +561,48 @@ export function generateDemoKotRows(): DemoKotRow[] {
 
   return rows;
 }
+
+/** One guest_dish_log row per guest-linked KOT — keeps profile in sync with KOT Log. */
+export function generateGuestDishLogsFromKots(): DemoGuestDishLogRow[] {
+  return generateDemoKotRows()
+    .filter((k) => k.type === 'Guest' && k.guestLegacyId != null)
+    .map((k) => {
+      const dish = DISHES_RAW[k.camp].find((d) => d.id === k.dishLegacyId);
+      const overrideKey = `${k.guestLegacyId}|${k.dishLegacyId}|${k.date}`;
+      const preferenceNote = DEMO_GUEST_DISH_LOG_NOTE_OVERRIDES[overrideKey];
+      return {
+        guestLegacyId: k.guestLegacyId!,
+        camp: k.camp,
+        dishLegacyId: k.dishLegacyId,
+        date: k.date,
+        meal: mealFromDishCategory(dish?.cat),
+        notes: preferenceNote ?? (k.qty > 1 ? `Qty ${k.qty}` : ''),
+      };
+    });
+}
+
+export function validateGuestDishLogsMatchKots(): string[] {
+  const kotKeys = new Set(
+    generateDemoKotRows()
+      .filter((k) => k.type === 'Guest' && k.guestLegacyId != null)
+      .map((k) => `${k.guestLegacyId}|${k.camp}|${k.dishLegacyId}|${k.date}`),
+  );
+  const logKeys = new Set(
+    generateGuestDishLogsFromKots().map(
+      (l) => `${l.guestLegacyId}|${l.camp}|${l.dishLegacyId}|${l.date}`,
+    ),
+  );
+  const errors: string[] = [];
+  for (const key of kotKeys) {
+    if (!logKeys.has(key)) errors.push(`Missing guest dish log for KOT ${key}`);
+  }
+  for (const key of logKeys) {
+    if (!kotKeys.has(key)) errors.push(`Orphan guest dish log without KOT ${key}`);
+  }
+  return errors;
+}
+
+export const DEMO_GUEST_DISH_LOGS: DemoGuestDishLogRow[] = generateGuestDishLogsFromKots();
 
 export function guestProfileKey(g: DemoGuestRow): string {
   return buildProfileKey(g.name, g.phone);

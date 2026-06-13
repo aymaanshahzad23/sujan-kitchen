@@ -172,4 +172,5 @@ writeFileSync(join(__dirname, '..', 'supabase', 'seed.sql'), lines.join('\n') + 
 console.log(`Wrote supabase/seed.sql (${lines.length} lines)`);
 console.log(`  Guests: ${DEMO_GUESTS.length}`);
 console.log(`  KOTs: ${kotRows.length} (${kotRows.filter((k) => k.guestLegacyId).length} guest-linked)`);
+console.log(`  Guest dish logs: ${DEMO_GUEST_DISH_LOGS.length}`);
 console.log(`  Leave records: ${DEMO_LEAVE_RECORDS.length}`);

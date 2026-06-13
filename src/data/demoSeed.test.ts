@@ -7,11 +7,14 @@ import {
 } from '../utils/guests';
 import {
   DEMO_GUESTS,
+  generateDemoKotRows,
+  generateGuestDishLogsFromKots,
   guestProfileKey,
   guestProfileRowId,
   guestRowId,
   guestStayKey,
   validateDemoGuestProfiles,
+  validateGuestDishLogsMatchKots,
 } from './demoSeed';
 
 function toGuest(row: (typeof DEMO_GUESTS)[number]): Guest {
@@ -41,6 +44,19 @@ function toGuest(row: (typeof DEMO_GUESTS)[number]): Guest {
 describe('validateDemoGuestProfiles', () => {
   it('has no returning-guest data inconsistencies', () => {
     expect(validateDemoGuestProfiles()).toEqual([]);
+  });
+});
+
+describe('validateGuestDishLogsMatchKots', () => {
+  it('has one guest dish log per guest-linked KOT', () => {
+    expect(validateGuestDishLogsMatchKots()).toEqual([]);
+  });
+
+  it('includes every KOT dish for James & Emily Hartley current stay', () => {
+    const kotCount = generateDemoKotRows().filter((k) => k.guestLegacyId === 1).length;
+    const logCount = generateGuestDishLogsFromKots().filter((l) => l.guestLegacyId === 1).length;
+    expect(kotCount).toBeGreaterThan(1);
+    expect(logCount).toBe(kotCount);
   });
 });
 

@@ -4,6 +4,7 @@ import { StatCard } from '../components/StatCard';
 import { PR, SECS, GRN, RED, ORA, MUT, CAMP_NAMES } from '../constants';
 import { fN } from '../utils/helpers';
 import { buildGuestKotInput } from '../utils/leaveCapacity';
+import { punchGuestKotWithProfileSync } from '../utils/guestDishes';
 import { toLegacyDish, toLegacyKot } from '../lib/mappers';
 import type { KotType } from '../types/database';
 
@@ -40,7 +41,8 @@ export function KotTab() {
           qty: +kotQty,
           revenue: +kotRev || 0,
         });
-        await kots.punchKot(payload);
+        const dish = dishes.dishes.find((d) => d.id === kotDish);
+        await punchGuestKotWithProfileSync(kots.punchKot, guests.addGuestDish, dish, payload);
         setKotDish('');
         setKotDate('');
         setKotQty('');
