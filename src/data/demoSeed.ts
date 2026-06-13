@@ -124,6 +124,14 @@ export const DEMO_GUESTS: DemoGuestRow[] = [
     chefNotes: '', status: 'checked-out',
   },
   {
+    id: 15, profileId: 2, camp: 'jawai', regNo: 'JW-2025-032',
+    name: 'Dr. Rajeev Mehta', phone: '+91 98200 11234', nationality: 'India',
+    tent: 'Tent 6', checkIn: '2025-03-18', checkOut: '2025-03-22',
+    foodPref: 'omnivore', allergies: '', dietNotes: 'Low spice at breakfast; first JAWAI visit',
+    experiences: 'Holika Dahan evening', feedback: 'Introduced to Godwar menu — became a favourite',
+    chefNotes: '', status: 'checked-out',
+  },
+  {
     id: 13, profileId: 13, camp: 'jawai', regNo: 'JW-2026-001',
     name: 'Arjun & Neha Kapoor', phone: '+91 98100 55443', nationality: 'India',
     tent: 'Tent 4', checkIn: '2026-01-08', checkOut: '2026-01-12',
@@ -407,6 +415,7 @@ export const DEMO_GUEST_DISH_LOGS: DemoGuestDishLogRow[] = [
   // Past stays — preference memory for returning guests
   { guestLegacyId: 9, camp: 'jawai', dishLegacyId: 2, date: '2025-02-15', meal: 'Breakfast', notes: 'Anniversary breakfast — same dish requested again 2026' },
   { guestLegacyId: 12, camp: 'jawai', dishLegacyId: 23, date: '2025-11-13', meal: 'Dinner', notes: 'Godwar thali — repeat on every visit' },
+  { guestLegacyId: 15, camp: 'jawai', dishLegacyId: 26, date: '2025-03-20', meal: 'Dinner', notes: 'First Godwar dinner — started the tradition' },
   { guestLegacyId: 25, camp: 'sherbagh', dishLegacyId: 110, date: '2025-09-15', meal: 'Breakfast', notes: 'Governor General — must have on return' },
   { guestLegacyId: 35, camp: 'serai', dishLegacyId: 228, date: '2026-03-08', meal: 'Dinner', notes: 'Wood oven chicken — ordered again this stay' },
   { guestLegacyId: 23, camp: 'sherbagh', dishLegacyId: 120, date: '2026-06-09', meal: 'Lunch', notes: 'Camp curry — nut-free confirmed' },

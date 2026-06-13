@@ -437,6 +437,22 @@ export function GuestsTab() {
             {visitHistory.length > 1 && (
               <div className="info" style={{ marginBottom: 12 }}>
                 Returning guest — {visitHistory.length} visits on record at {CAMP_NAMES[campId]}.
+                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {visitHistory.map((stay) => (
+                    <div
+                      key={stay.id}
+                      style={{
+                        fontSize: 11,
+                        color: stay.id === g.id ? PR : MUT,
+                        fontWeight: stay.id === g.id ? 500 : 400,
+                      }}
+                    >
+                      {stay.id === g.id ? '▸ ' : '  '}
+                      {stay.reg_no || '—'} · {stay.check_in} → {stay.check_out || '—'} · Tent {stay.tent || '—'} ·{' '}
+                      {stay.status === 'in-house' ? 'In house' : stay.status === 'expected' ? 'Expected' : 'Checked out'}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
