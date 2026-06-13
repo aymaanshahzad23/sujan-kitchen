@@ -1,5 +1,5 @@
 import type { CampId } from '../types/database';
-import { buildProfileKey, buildStayKey } from '../utils/guests';
+import { buildProfileKey, buildStayKey, formatVisitOrdinal } from '../utils/guests';
 import { dishUuid, guestUuid, profileUuid } from './uuids';
 
 /** Demo "today" — keep seed aligned with product screenshots */
@@ -33,7 +33,7 @@ export const DEMO_GUESTS: DemoGuestRow[] = [
     tent: 'Tent 3', checkIn: '2026-06-10', checkOut: '2026-06-16',
     foodPref: 'omnivore', allergies: '', dietNotes: 'Prefer lighter lunches; Emily avoids shellfish',
     experiences: 'Bush dinner booked 12 Jun; leopard safari 11 Jun', feedback: '',
-    chefNotes: 'Celebrating anniversary — note on dessert plate', status: 'in-house',
+    chefNotes: 'Returning guest — 2nd visit; celebrating anniversary — note on dessert plate', status: 'in-house',
   },
   {
     id: 2, profileId: 2, camp: 'jawai', regNo: 'JW-2026-018',
@@ -153,7 +153,7 @@ export const DEMO_GUESTS: DemoGuestRow[] = [
     name: 'Eleanor & Henry Ashworth', phone: '+44 20 7946 0958', nationality: 'United Kingdom',
     tent: 'Tent 2', checkIn: '2026-06-09', checkOut: '2026-06-15',
     foodPref: 'omnivore', allergies: '', dietNotes: 'Classic Anglo-Indian comfort food',
-    experiences: 'Horse safari 12 Jun', feedback: '', chefNotes: 'Tea service at 4pm daily', status: 'in-house',
+    experiences: 'Horse safari 12 Jun', feedback: '', chefNotes: 'Returning guest — 2nd visit; tea service at 4pm daily', status: 'in-house',
   },
   {
     id: 22, profileId: 22, camp: 'sherbagh', regNo: 'SB-2026-008',
@@ -224,7 +224,8 @@ export const DEMO_GUESTS: DemoGuestRow[] = [
     name: 'Catherine Moore', phone: '+1 212 555 0142', nationality: 'United States',
     tent: 'Tent 1', checkIn: '2026-06-08', checkOut: '2026-06-14',
     foodPref: 'omnivore', allergies: '', dietNotes: 'Enjoys wood-fired mains',
-    experiences: 'Desert sundowner 11 Jun', feedback: '', chefNotes: '', status: 'in-house',
+    experiences: 'Desert sundowner 11 Jun', feedback: '',
+    chefNotes: 'Returning guest — 2nd visit', status: 'in-house',
   },
   {
     id: 32, profileId: 32, camp: 'serai', regNo: 'SR-2026-007',
@@ -579,4 +580,45 @@ export function guestRowId(legacyId: number): string {
 
 export function guestProfileRowId(profileId: number): string {
   return profileUuid(profileId);
+}
+
+/** Validates demo seed: shared profiles must have consistent name/phone and correct visit ordinals. */
+export function validateDemoGuestProfiles(): string[] {
+  const errors: string[] = [];
+  const byProfile = new Map<string, DemoGuestRow[]>();
+
+  for (const g of DEMO_GUESTS) {
+    const key = `${g.camp}|${g.profileId}`;
+    if (!byProfile.has(key)) byProfile.set(key, []);
+    byProfile.get(key)!.push(g);
+  }
+
+  for (const [, stays] of byProfile) {
+    if (stays.length < 2) continue;
+
+    const profileKey = guestProfileKey(stays[0]);
+    for (const stay of stays) {
+      if (guestProfileKey(stay) !== profileKey) {
+        errors.push(
+          `Profile ${stays[0].profileId} at ${stays[0].camp}: inconsistent name/phone on stay id ${stay.id}`,
+        );
+      }
+    }
+
+    const chron = [...stays].sort((a, b) => a.checkIn.localeCompare(b.checkIn));
+    chron.forEach((stay, idx) => {
+      const visitNumber = idx + 1;
+      const isActive = stay.status === 'in-house' || stay.status === 'expected';
+      if (!isActive || visitNumber < 2) return;
+
+      const expected = `${formatVisitOrdinal(visitNumber)} visit`;
+      if (!stay.chefNotes.toLowerCase().includes(expected)) {
+        errors.push(
+          `${stay.name} (${stay.regNo}): active ${formatVisitOrdinal(visitNumber)} stay missing chef note "${expected}"`,
+        );
+      }
+    });
+  }
+
+  return errors;
 }

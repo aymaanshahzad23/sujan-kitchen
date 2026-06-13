@@ -5,6 +5,11 @@ import { StatCard } from '../components/StatCard';
 import { BLU, CAMP_NAMES, GRN, GRNL, MUT, ORA, ORAL, PR, RED, REDL } from '../constants';
 import {
   findReturningGuestProfile,
+  formatReturningVisitLabel,
+  formatVisitOrdinal,
+  getGuestVisitHistory,
+  getStayVisitNumber,
+  isReturningGuest,
   prepareGuestIdentity,
   validateGuestRegistration,
 } from '../utils/guests';
@@ -80,10 +85,17 @@ export function GuestsTab() {
 
   const priorVisits = useMemo(() => {
     if (!returningProfile?.profile_key) return [];
-    return allGuests.allGuests
-      .filter((g) => g.camp_id === campId && g.profile_key === returningProfile.profile_key)
-      .sort((a, b) => (b.check_in || '').localeCompare(a.check_in || ''));
+    return getGuestVisitHistory(returningProfile, allGuests.allGuests, campId);
   }, [returningProfile, allGuests.allGuests, campId]);
+
+  const returningInHouseCount = useMemo(
+    () =>
+      campGuests.filter((g) => {
+        const history = getGuestVisitHistory(g, allGuests.allGuests, campId);
+        return isReturningGuest(history) && (g.status === 'in-house' || g.status === 'expected');
+      }).length,
+    [campGuests, allGuests.allGuests, campId],
+  );
 
   const handleAddGuest = async () => {
     const err = validateGuestRegistration({
@@ -101,6 +113,18 @@ export function GuestsTab() {
     try {
       const identity = prepareGuestIdentity(gName, gTent, gPhone, allGuests.allGuests, campId);
       const prior = identity.returning;
+      const existingVisits = prior
+        ? getGuestVisitHistory(
+            { profile_key: identity.profile_key, camp_id: campId, id: '' },
+            allGuests.allGuests,
+            campId,
+          )
+        : [];
+      const nextVisitNumber = existingVisits.length + 1;
+      const autoReturningNote =
+        prior && !gChef.trim()
+          ? `Returning guest — ${formatVisitOrdinal(nextVisitNumber)} visit`
+          : null;
 
       const data = await addGuest({
         camp_id: campId,
@@ -119,7 +143,7 @@ export function GuestsTab() {
         diet_notes: gDiet || prior?.diet_notes || null,
         experiences: gExp || prior?.experiences || null,
         feedback: gFB || null,
-        chef_notes: gChef || prior?.chef_notes || null,
+        chef_notes: gChef || autoReturningNote || prior?.chef_notes || null,
         status: gStat,
       });
       setGReg('');
@@ -185,6 +209,7 @@ export function GuestsTab() {
         <StatCard label="Expected" val={expectedCount} color={ORA} prefix="" />
         <StatCard label="Past Stays" val={checkedOutCount} color={MUT} prefix="" />
         <StatCard label="Allergy Alerts" val={allergyCount} color={RED} prefix="" />
+        <StatCard label="Returning" val={returningInHouseCount} color={ORA} prefix="" />
       </div>
 
       {gSub === 'add' && (
@@ -256,8 +281,9 @@ export function GuestsTab() {
           </div>
           {returningProfile && (
             <div className="info" style={{ marginBottom: 10 }}>
-              <strong>Returning guest</strong> — matched by name + phone ({priorVisits.length} prior visit
-              {priorVisits.length !== 1 ? 's' : ''} at this camp).
+              <strong>Returning guest</strong> — matched by name + phone. This registration will be their{' '}
+              {formatVisitOrdinal(priorVisits.length + 1)} visit at {CAMP_NAMES[campId]} ({priorVisits.length}{' '}
+              prior stay{priorVisits.length !== 1 ? 's' : ''} on record).
               {returningProfile.allergies && (
                 <span style={{ display: 'block', marginTop: 4 }}>
                   Previous allergies: {returningProfile.allergies}
@@ -331,9 +357,9 @@ export function GuestsTab() {
             const inH = g.status === 'in-house';
             const isExpected = g.status === 'expected';
             const statusBadge = guestStatusBadge(g.status);
-            const isReturning =
-              g.profile_key &&
-              allGuests.allGuests.filter((x) => x.camp_id === campId && x.profile_key === g.profile_key).length > 1;
+            const visitHistory = getGuestVisitHistory(g, allGuests.allGuests, campId);
+            const visitNumber = getStayVisitNumber(g, allGuests.allGuests, campId);
+            const isReturning = isReturningGuest(visitHistory);
             return (
               <div
                 key={g.id}
@@ -362,7 +388,7 @@ export function GuestsTab() {
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                     {isReturning && (
                       <span className="badge" style={{ background: ORAL, color: ORA }}>
-                        Returning
+                        {formatReturningVisitLabel(visitNumber)}
                       </span>
                     )}
                     {g.allergies && (
@@ -391,11 +417,8 @@ export function GuestsTab() {
         const inH = g.status === 'in-house';
         const isExpected = g.status === 'expected';
         const logs = dishLogs[g.id] || [];
-        const visitHistory = g.profile_key
-          ? allGuests.allGuests
-              .filter((x) => x.camp_id === campId && x.profile_key === g.profile_key)
-              .sort((a, b) => (b.check_in || '').localeCompare(a.check_in || ''))
-          : [];
+        const visitHistory = getGuestVisitHistory(g, allGuests.allGuests, campId);
+        const visitNumber = getStayVisitNumber(g, allGuests.allGuests, campId);
 
         return (
           <div className="card" style={{ border: `2px solid ${inH ? GRN : isExpected ? ORA : '#d9cdb8'}` }}>
@@ -434,9 +457,10 @@ export function GuestsTab() {
               </div>
             </div>
 
-            {visitHistory.length > 1 && (
+            {isReturningGuest(visitHistory) && (
               <div className="info" style={{ marginBottom: 12 }}>
-                Returning guest — {visitHistory.length} visits on record at {CAMP_NAMES[campId]}.
+                Returning guest — {formatReturningVisitLabel(visitNumber)} at {CAMP_NAMES[campId]} (
+                {visitHistory.length} visits on record).
                 <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {visitHistory.map((stay) => (
                     <div

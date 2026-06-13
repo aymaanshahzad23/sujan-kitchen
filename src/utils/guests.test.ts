@@ -4,6 +4,11 @@ import {
   buildProfileKey,
   buildStayKey,
   findReturningGuestProfile,
+  formatReturningVisitLabel,
+  formatVisitOrdinal,
+  getGuestVisitHistory,
+  getStayVisitNumber,
+  isReturningGuest,
   resolveInHouseGuestForTent,
   validateGuestRegistration,
 } from './guests';
@@ -41,6 +46,18 @@ describe('guest identity keys', () => {
     const prior = baseGuest({ id: 'old', status: 'checked-out', check_out: '2024-01-10' });
     const found = findReturningGuestProfile('Jane Doe', '+91 9876543210', [prior], 'jawai');
     expect(found?.id).toBe('old');
+  });
+
+  it('flags 2nd visit guests as returning', () => {
+    const first = baseGuest({ id: 'first', status: 'checked-out', check_out: '2024-01-10' });
+    const second = baseGuest({ id: 'second', check_in: '2024-06-01' });
+    const guests = [first, second];
+    const history = getGuestVisitHistory(second, guests, 'jawai');
+
+    expect(isReturningGuest(history)).toBe(true);
+    expect(getStayVisitNumber(second, guests, 'jawai')).toBe(2);
+    expect(formatReturningVisitLabel(2)).toBe('2nd visit');
+    expect(formatVisitOrdinal(3)).toBe('3rd');
   });
 });
 

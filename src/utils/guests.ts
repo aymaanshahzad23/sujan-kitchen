@@ -29,6 +29,51 @@ export function guestCoversDate(guest: Guest, date: string): boolean {
   return date >= checkIn && date <= checkOut;
 }
 
+export function getGuestVisitHistory(
+  guest: Pick<Guest, 'profile_key' | 'camp_id' | 'id'>,
+  guests: Guest[],
+  campId: CampId,
+): Guest[] {
+  if (!guest.profile_key) return [];
+  return guests
+    .filter((g) => g.camp_id === campId && g.profile_key === guest.profile_key)
+    .sort((a, b) => (b.check_in || '').localeCompare(a.check_in || ''));
+}
+
+export function getGuestVisitHistoryChronological(
+  profileKey: string | null | undefined,
+  guests: Guest[],
+  campId: CampId,
+): Guest[] {
+  if (!profileKey) return [];
+  return guests
+    .filter((g) => g.camp_id === campId && g.profile_key === profileKey)
+    .sort((a, b) => (a.check_in || '').localeCompare(b.check_in || ''));
+}
+
+export function isReturningGuest(visitHistory: Guest[]): boolean {
+  return visitHistory.length > 1;
+}
+
+export function formatVisitOrdinal(visitNumber: number): string {
+  if (visitNumber <= 0) return `${visitNumber}`;
+  const mod100 = visitNumber % 100;
+  const suffix =
+    mod100 >= 11 && mod100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][Math.min(visitNumber % 10, 3)];
+  return `${visitNumber}${suffix}`;
+}
+
+export function getStayVisitNumber(guest: Guest, guests: Guest[], campId: CampId): number {
+  if (!guest.profile_key) return 1;
+  const chron = getGuestVisitHistoryChronological(guest.profile_key, guests, campId);
+  const idx = chron.findIndex((g) => g.id === guest.id);
+  return idx >= 0 ? idx + 1 : chron.length + 1;
+}
+
+export function formatReturningVisitLabel(visitNumber: number): string {
+  return `${formatVisitOrdinal(visitNumber)} visit`;
+}
+
 export function findReturningGuestProfile(
   name: string,
   phone: string,
@@ -36,10 +81,8 @@ export function findReturningGuestProfile(
   campId: CampId,
 ): Guest | null {
   const profileKey = buildProfileKey(name, phone);
-  const matches = guests
-    .filter((g) => g.camp_id === campId && g.profile_key === profileKey)
-    .sort((a, b) => (b.check_in || '').localeCompare(a.check_in || ''));
-  return matches[0] || null;
+  const matches = getGuestVisitHistoryChronological(profileKey, guests, campId);
+  return matches[matches.length - 1] || null;
 }
 
 export function findActiveStayConflict(
