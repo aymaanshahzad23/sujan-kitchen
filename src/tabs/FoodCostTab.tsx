@@ -125,6 +125,15 @@ export function FoodCostTab() {
     if (ing) setPurP(String(ing.price));
   }, [pur_i, ingr]);
 
+  const purIng = useMemo(
+    () => (pur_i ? ingr.find((i) => i.id === pur_i) : undefined),
+    [pur_i, ingr],
+  );
+  const issIng = useMemo(
+    () => (iss_i ? ingr.find((i) => i.id === iss_i) : undefined),
+    [iss_i, ingr],
+  );
+
   const mainStore = useMemo(
     () =>
       ingr.map((i) => {
@@ -486,23 +495,42 @@ export function FoodCostTab() {
                       <option value="">Select</option>
                       {ingr.map((i) => (
                         <option key={i.id} value={i.id}>
-                          {i.name}
+                          {i.name} ({i.unit})
                         </option>
                       ))}
                     </select>
                   </div>
                   <div className="field">
-                    <label>Qty</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={pur_q}
-                      onChange={(e) => setPurQ(e.target.value)}
-                      style={{ width: 80 }}
-                    />
+                    <label>Qty{purIng ? ` (${purIng.unit})` : ''}</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        type="number"
+                        min="0"
+                        value={pur_q}
+                        onChange={(e) => setPurQ(e.target.value)}
+                        style={{ width: 80 }}
+                        placeholder={purIng ? `e.g. 10` : ''}
+                      />
+                      {purIng && (
+                        <span
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 500,
+                            color: PR,
+                            background: '#f0ece6',
+                            padding: '4px 8px',
+                            borderRadius: 4,
+                            minWidth: 36,
+                            textAlign: 'center',
+                          }}
+                        >
+                          {purIng.unit}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="field">
-                    <label>Price/unit Rs</label>
+                    <label>Price Rs / {purIng?.unit ?? 'unit'}</label>
                     <input
                       type="number"
                       min="0"
@@ -524,6 +552,12 @@ export function FoodCostTab() {
                     Receive
                   </button>
                 </div>
+                {purIng && (
+                  <div style={{ fontSize: 11, color: MUT, fontStyle: 'italic', marginTop: 6 }}>
+                    Enter quantity in <strong>{purIng.unit}</strong> — same unit as opening stock and purchases for{' '}
+                    {purIng.name}.
+                  </div>
+                )}
               </div>
               {purchases.length > 0 && (
                 <div className="card" style={{ padding: 0 }}>
@@ -775,7 +809,7 @@ export function FoodCostTab() {
                   <option value="">Select</option>
                   {ingr.map((i) => (
                     <option key={i.id} value={i.id}>
-                      {i.name}
+                      {i.name} ({i.unit})
                     </option>
                   ))}
                 </select>
@@ -795,14 +829,33 @@ export function FoodCostTab() {
                 </select>
               </div>
               <div className="field">
-                <label>Qty</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={iss_q}
-                  onChange={(e) => setIssQ(e.target.value)}
-                  style={{ width: 80 }}
-                />
+                <label>Qty{issIng ? ` (${issIng.unit})` : ''}</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input
+                    type="number"
+                    min="0"
+                    value={iss_q}
+                    onChange={(e) => setIssQ(e.target.value)}
+                    style={{ width: 80 }}
+                    placeholder={issIng ? `e.g. 5` : ''}
+                  />
+                  {issIng && (
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 500,
+                        color: PR,
+                        background: '#f0ece6',
+                        padding: '4px 8px',
+                        borderRadius: 4,
+                        minWidth: 36,
+                        textAlign: 'center',
+                      }}
+                    >
+                      {issIng.unit}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="field">
                 <label>Date</label>
