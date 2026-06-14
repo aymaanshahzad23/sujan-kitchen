@@ -1,10 +1,18 @@
 import { useMemo, useState } from 'react';
 import { useAppData } from '../context/AppContext';
-import { PBar } from '../components/PBar';
+import { AnalysisPeriodBar } from '../components/AnalysisPeriodBar';
 import { BcgChart } from '../components/BcgChart';
-import { SECS, MUT, Q } from '../constants';
-import { gM, gW, kotToRec } from '../utils/helpers';
-import { classifyDishes, computeDishQuantities, chartDataset } from '../utils/bcgChart';
+import { SECS, MUT, PR, Q } from '../constants';
+import { kotToRec } from '../utils/helpers';
+import {
+  ANALYSIS_PERIOD_LABELS,
+  ANALYSIS_SECTIONS,
+  analysisPeriodRange,
+  classifyDishes,
+  computeDishQuantities,
+  chartDataset,
+  type AnalysisPeriod,
+} from '../utils/bcgChart';
 import { toLegacyDish, toLegacyKot } from '../lib/mappers';
 
 interface AnalysisTabProps {
@@ -18,53 +26,70 @@ export function AnalysisTab(props: AnalysisTabProps = {}) {
   const { dishes, kots } = useAppData();
   const cd = useMemo(() => dishes.dishes.map(toLegacyDish), [dishes.dishes]);
 
-  const [internalView, setInternalView] = useState('all');
-  const [internalFk, setInternalFk] = useState('');
-  const view = props.view ?? internalView;
-  const fk = props.fk ?? internalFk;
-  const setView = props.setView ?? setInternalView;
-  const setFk = props.setFk ?? setInternalFk;
+  const [internalPeriod, setInternalPeriod] = useState<AnalysisPeriod>('all');
+  const [internalSection, setInternalSection] = useState('all');
+  const period = (props.view as AnalysisPeriod) ?? internalPeriod;
+  const setPeriod = (v: AnalysisPeriod) => {
+    if (props.setView) props.setView(v);
+    else setInternalPeriod(v);
+    if (props.setFk) props.setFk('');
+  };
+  const section = internalSection;
+  const setSection = setInternalSection;
 
   const [hov, setHov] = useState<string | null>(null);
 
   const cr = useMemo(() => kotToRec(kots.kots.map(toLegacyKot)), [kots.kots]);
 
-  const fopts = useMemo(
-    () => ({
-      day: [...new Set(cr.map((r) => r.date))].sort(),
-      week: [...new Set(cr.map((r) => gW(r.date)))].sort(),
-      month: [...new Set(cr.map((r) => gM(r.date)))].sort(),
-    }),
-    [cr],
-  );
-
   const dishData = useMemo(
-    () => computeDishQuantities(cd, cr, view, fk),
-    [cd, cr, view, fk],
+    () => computeDishQuantities(cd, cr, period, '', section),
+    [cd, cr, period, section],
   );
 
   const clfed = useMemo(() => classifyDishes(dishData), [dishData]);
 
-  const periodFiltered = view !== 'all' && !!fk;
+  const periodFiltered = period !== 'all';
   const chart = useMemo(
     () => chartDataset(clfed, periodFiltered),
     [clfed, periodFiltered],
   );
 
-  const periodLabel =
-    view !== 'all' && fk
-      ? `${view}: ${fk}`
-      : view !== 'all'
-        ? `all ${view}s`
-        : undefined;
+  const periodLabel = useMemo(() => {
+    if (period === 'all') return undefined;
+    const range = analysisPeriodRange(period);
+    const sectionLabel = ANALYSIS_SECTIONS.find((s) => s.id === section)?.label;
+    const base = ANALYSIS_PERIOD_LABELS[period];
+    const rangeText = range ? ` (${range.from} → ${range.to})` : '';
+    return section !== 'all' ? `${sectionLabel} · ${base}${rangeText}` : `${base}${rangeText}`;
+  }, [period, section]);
 
   return (
     <div>
-      <PBar per={view} setPer={setView} pKey={fk} setPKey={setFk} opts={fopts} />
+      <AnalysisPeriodBar period={period} setPeriod={setPeriod} />
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        <span style={{ fontSize: 11, color: MUT, fontStyle: 'italic', alignSelf: 'center' }}>Section:</span>
+        {ANALYSIS_SECTIONS.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            className="btn"
+            style={{
+              fontSize: 11,
+              padding: '4px 11px',
+              background: section === s.id ? PR : '#fff',
+              color: section === s.id ? '#fff' : '#2a2418',
+              border: '1px solid #d9cdb8',
+            }}
+            onClick={() => setSection(s.id)}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
       <div className="card">
         {chart.items.length === 0 && periodFiltered ? (
           <div style={{ fontSize: 13, color: MUT, fontStyle: 'italic', padding: '40px 0', textAlign: 'center' }}>
-            No guest KOT sales recorded for {view} {fk}.
+            No guest KOT sales recorded for {periodLabel || 'this period'}.
           </div>
         ) : (
           <BcgChart

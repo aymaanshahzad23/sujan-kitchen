@@ -61,7 +61,6 @@ export type StaffSubTab =
   | 'staff-roster'
   | 'staff-leaves'
   | 'staff-calendar'
-  | 'staff-schedule'
   | 'staff-holidays';
 
 export type MainTab =
@@ -80,7 +79,6 @@ export function isStaffSubTab(tab: MainTab): tab is StaffSubTab {
     tab === 'staff-roster' ||
     tab === 'staff-leaves' ||
     tab === 'staff-calendar' ||
-    tab === 'staff-schedule' ||
     tab === 'staff-holidays'
   );
 }
@@ -107,7 +105,6 @@ export const NAV_SECTIONS: readonly {
       ['staff-roster', 'Staff Roster'],
       ['staff-leaves', 'Leave Management'],
       ['staff-calendar', 'Calendar'],
-      ['staff-schedule', 'Schedule Leave'],
       ['staff-holidays', 'Public Holidays'],
     ],
   },

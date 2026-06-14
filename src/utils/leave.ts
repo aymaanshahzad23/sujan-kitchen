@@ -1,7 +1,7 @@
 import type { CompOff, Ingredient, LeaveRecord, LeaveStatus, LegacyStaff, PublicHoliday, RecipeLine, StaffMember } from '../types/database';
 import type { LeaveSplit } from '../types/database';
 import { LEAVE_TYPES, MONTH_NAMES } from '../constants';
-import { addDays, eachDateInRange, formatDateLocal, getSundaysInMonth, parseDateLocal } from './helpers';
+import { addDays, eachDateInRange, formatDateLocal, parseDateLocal } from './helpers';
 import { MAX_CONCURRENT_LEAVE, peakStaffLeaveDays } from './leaveCapacity';
 
 export interface LeaveBalance {
@@ -111,6 +111,7 @@ export const LEAVE_ENTITLEMENTS = {
   CL_ANNUAL: 5,
   CL_MONTHLY: 5 / 12,
   ML_ANNUAL: 7,
+  WO_MONTHLY: 4,
 } as const;
 
 /** Months credited up to and including reference month (1st-of-month accrual) */
@@ -146,9 +147,11 @@ export function compOffEarnedDate(woYear: number, woMonth: number): string {
   return woMonth === 11 ? `${woYear + 1}-01-01` : `${woYear}-${String(woMonth + 2).padStart(2, '0')}-01`;
 }
 
-/** 60-day window starts on the 1st of the weekly-off month (includes WO + CO time) */
+/** 60-day window starts on the 1st of the month after the weekly-off month */
 export function compOffExpiryDate(woYear: number, woMonth: number): string {
-  return addDays(monthBounds(woYear, woMonth).start, COMP_OFF_EXPIRY_DAYS);
+  const nextMonth = woMonth === 11 ? 0 : woMonth + 1;
+  const nextYear = woMonth === 11 ? woYear + 1 : woYear;
+  return addDays(monthBounds(nextYear, nextMonth).start, COMP_OFF_EXPIRY_DAYS);
 }
 
 export function compOffReason(woYear: number, woMonth: number): string {
@@ -269,8 +272,19 @@ export function countTypeDaysInMonth(
   return total;
 }
 
-export function getWeeklyOffCredit(year: number, month: number): number {
-  return getSundaysInMonth(year, month);
+export function getWeeklyOffCredit(_year: number, _month: number): number {
+  return LEAVE_ENTITLEMENTS.WO_MONTHLY;
+}
+
+/** Approved leave on public holidays consumes weekly off (not PH or CL) */
+export function countWeeklyOffUsedOnPublicHolidays(
+  staffId: string,
+  leaveRecs: LeaveRecord[],
+  publicHolidays: PublicHolidayLike[],
+  year: number,
+  options?: { excludeLeaveId?: string },
+): number {
+  return countPublicHolidayLeaveDays(staffId, leaveRecs, publicHolidays, year, options);
 }
 
 export function getActiveCompOffCount(
@@ -302,11 +316,12 @@ export function getLeaveBalance(
   const cPH = countPublicHolidayCredits(s, publicHolidays, year, phThrough);
 
   const usedPL = countUsedDays(staffId, 'PL', leaveRecs);
-  const usedCLBase = countUsedDays(staffId, 'CL', leaveRecs);
+  const usedCL = countUsedDays(staffId, 'CL', leaveRecs);
   const usedML = countUsedDays(staffId, 'ML', leaveRecs);
-  const usedWO = countTypeDaysInMonth(staffId, 'WO', leaveRecs, year, month);
-  const usedPH = countPublicHolidayLeaveDays(staffId, leaveRecs, publicHolidays, year);
-  const usedCL = usedCLBase + usedPH;
+  const usedWOExplicit = countTypeDaysInMonth(staffId, 'WO', leaveRecs, year, month);
+  const usedWOOnPH = countWeeklyOffUsedOnPublicHolidays(staffId, leaveRecs, publicHolidays, year);
+  const usedWO = usedWOExplicit + usedWOOnPH;
+  const usedPH = 0;
   const asOf = asOfDate(yearMonth, now);
   const avCO = getActiveCompOffCount(staffId, compOffs, asOf);
 
@@ -455,18 +470,6 @@ export function validateLeaveApplication(
     }
   }
 
-  const leaveYear = from.getFullYear();
-  const creditThrough = toDate > formatDateLocal(new Date()) ? toDate : formatDateLocal(new Date());
-  const cPH = countPublicHolidayCredits(s, publicHolidays, leaveYear, creditThrough);
-  const usedPH = countPublicHolidayLeaveDays(
-    s.id,
-    leaveRecs,
-    publicHolidays,
-    leaveYear,
-    options,
-  );
-  const remPH = Math.max(0, cPH - usedPH);
-
   const bal = getLeaveBalance(s, leaveRecs, compOffs, yearMonth, publicHolidays);
   const balMap: Record<string, number> = {
     PL: bal.remPL,
@@ -487,11 +490,8 @@ export function validateLeaveApplication(
   };
 
   if (phDaysCount > 0) {
-    if (phDaysCount > remPH) {
-      return `Insufficient Public Holiday balance for ${s.name}.\nRequested on ${phDaysCount} public holiday day(s) · Available: ${remPH} day(s).\nLeave not applied.`;
-    }
-    if (phDaysCount > bal.remCL) {
-      return `Taking leave on a public holiday also requires Casual Leave.\nNeeded: ${phDaysCount} CL day(s) · Available: ${Math.floor(bal.remCL * 10) / 10} day(s).\nLeave not applied.`;
+    if (phDaysCount > bal.remWO) {
+      return `Leave on a public holiday uses Weekly Off.\nNeeded: ${phDaysCount} WO day(s) · Available: ${bal.remWO} day(s).\nLeave not applied.`;
     }
   }
 
@@ -501,7 +501,7 @@ export function validateLeaveApplication(
     if (splits.length > 0) {
       const splitDaysTotal = splits.reduce((sum, x) => sum + x.days, 0);
       if (splitDaysTotal !== nonPhDays) {
-        return `Split days total (${splitDaysTotal}) must equal non-holiday days (${nonPhDays}). Public holiday days in this period are charged as 1 PH + 1 CL each.`;
+        return `Split days total (${splitDaysTotal}) must equal non-holiday days (${nonPhDays}). Public holiday days in this period use Weekly Off.`;
       }
     }
 
@@ -512,7 +512,7 @@ export function validateLeaveApplication(
       }
     }
   } else if (splits.length > 0) {
-    return 'Leave splits are not needed when the full period falls on public holidays (charged as 1 PH + 1 CL per day).';
+    return 'Leave splits are not needed when the full period falls on public holidays (each day uses Weekly Off).';
   }
 
   if (totalDays === 0) return 'Leave period must include at least one day.';
@@ -539,9 +539,9 @@ export function buildMonthlyCompOffRows(
   const rows: Omit<CompOff, 'id'>[] = [];
 
   for (const s of staffList) {
-    const sundays = getSundaysInMonth(year, month);
+    const woCredit = getWeeklyOffCredit(year, month);
     const woUsed = countTypeDaysInMonth(s.id, 'WO', leaveRecs, year, month);
-    const unusedWOs = Math.max(0, sundays - woUsed);
+    const unusedWOs = Math.max(0, woCredit - woUsed);
     for (let i = 0; i < unusedWOs; i++) {
       rows.push({
         staff_id: s.id,

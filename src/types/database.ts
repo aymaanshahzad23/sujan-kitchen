@@ -138,6 +138,10 @@ export interface Guest {
   feedback: string | null;
   chef_notes: string | null;
   status: string;
+  guest_1_birthdate?: string | null;
+  guest_2_birthdate?: string | null;
+  anniversary_date?: string | null;
+  checkin_id?: string | null;
   dish_log?: GuestDishLog[];
 }
 

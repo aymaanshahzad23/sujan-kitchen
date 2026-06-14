@@ -72,21 +72,21 @@ export function BcgChart({
         >
         {/* Star: low cost + high popularity (top-left) */}
         <rect x="0" y="0" width={aX} height={aY} fill="#f0f7f3" opacity="0.5" />
-        {/* Plow: high cost + high popularity (top-right) */}
-        <rect x={aX} y="0" width={500 - aX} height={aY} fill="#fdf6f0" opacity="0.5" />
-        {/* Puzzle: low cost + low popularity (bottom-left) */}
-        <rect x="0" y={aY} width={aX} height={400 - aY} fill="#f5f2f8" opacity="0.5" />
+        {/* Puzzle: high cost + high popularity (top-right) */}
+        <rect x={aX} y="0" width={500 - aX} height={aY} fill="#eeeef8" opacity="0.5" />
+        {/* Plow Horse: low cost + low popularity (bottom-left) */}
+        <rect x="0" y={aY} width={aX} height={400 - aY} fill="#fdf6f0" opacity="0.5" />
         {/* Dog: high cost + low popularity (bottom-right) */}
         <rect x={aX} y={aY} width={500 - aX} height={400 - aY} fill="#f5f0eb" opacity="0.5" />
 
         <text x="8" y="22" fontSize="9" fill={Q.star.color} fontFamily="Georgia,serif" fontStyle="italic">
           Star
         </text>
-        <text x={aX + 5} y="22" fontSize="9" fill={Q.plow.color} fontFamily="Georgia,serif" fontStyle="italic">
-          Plow Horse
-        </text>
-        <text x="8" y={CHART.bottom - 4} fontSize="9" fill={Q.puzzle.color} fontFamily="Georgia,serif" fontStyle="italic">
+        <text x={aX + 5} y="22" fontSize="9" fill={Q.puzzle.color} fontFamily="Georgia,serif" fontStyle="italic">
           Puzzle
+        </text>
+        <text x="8" y={CHART.bottom - 4} fontSize="9" fill={Q.plow.color} fontFamily="Georgia,serif" fontStyle="italic">
+          Plow Horse
         </text>
         <text x={aX + 5} y={CHART.bottom - 4} fontSize="9" fill={Q.dog.color} fontFamily="Georgia,serif" fontStyle="italic">
           Dog

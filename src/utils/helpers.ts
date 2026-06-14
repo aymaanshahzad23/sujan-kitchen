@@ -25,9 +25,17 @@ export type Quad = 'star' | 'plow' | 'puzzle' | 'dog';
 export function clf(q: number, aQ: number, cost: number, aCost: number): Quad {
   const lowCost = cost <= aCost;
   if (q >= aQ && lowCost) return 'star';
-  if (q >= aQ && !lowCost) return 'plow';
-  if (q < aQ && lowCost) return 'puzzle';
+  if (q >= aQ && !lowCost) return 'puzzle';
+  if (q < aQ && lowCost) return 'plow';
   return 'dog';
+}
+
+/** Display dates as DD/MM/YYYY across the dashboard */
+export function formatDateDisplay(date: string | null | undefined): string {
+  if (!date) return '—';
+  const [y, m, d] = normalizeDate(date).split('-');
+  if (!y || !m || !d) return date;
+  return `${d}/${m}/${y}`;
 }
 
 export const fN = (n: number) => Number(n || 0).toLocaleString('en-IN');

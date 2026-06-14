@@ -19,9 +19,9 @@ import {
   SECTIONS_STAFF,
   CAMP_NAMES,
 } from '../constants';
-import { getLeaveBalance, validateLeaveApplication, validateStaffLeaveConflicts, staffOnLeaveOnDate, leaveTypeOptions, getCompOffsToConsume, countCoDaysInSplits, buildLeaveSplits, analyzePublicHolidayLeaveImpact, publicHolidayDaysInRange } from '../utils/leave';
+import { getLeaveBalance, validateLeaveApplication, validateStaffLeaveConflicts, staffOnLeaveOnDate, leaveTypeOptions, getCompOffsToConsume, countCoDaysInSplits, buildLeaveSplits, analyzePublicHolidayLeaveImpact, publicHolidayDaysInRange, leaveCoversDate } from '../utils/leave';
 import { leaveRecordOverloadDays, MAX_CONCURRENT_LEAVE } from '../utils/leaveCapacity';
-import { addDays, formatDateLocal, getDaysInMonth, getMonthDates, getSundaysInMonth, parseDateLocal } from '../utils/helpers';
+import { formatDateDisplay, getDaysInMonth, parseDateLocal } from '../utils/helpers';
 import type { CompOff, LeaveRecord, LeaveSplit, LeaveStatus, PublicHoliday, StaffMember } from '../types/database';
 
 import type { StaffSubTab } from '../constants';
@@ -30,13 +30,12 @@ const floor1 = (n: number) => Math.floor(n * 10) / 10;
 
 const LEAVE_TYPE_OPTIONS = leaveTypeOptions();
 
-type StaffSub = 'roster' | 'leaves' | 'calendar' | 'schedule' | 'holidays';
+type StaffSub = 'roster' | 'leaves' | 'calendar' | 'holidays';
 
 const STAFF_TAB_TO_SUB: Record<StaffSubTab, StaffSub> = {
   'staff-roster': 'roster',
   'staff-leaves': 'leaves',
   'staff-calendar': 'calendar',
-  'staff-schedule': 'schedule',
   'staff-holidays': 'holidays',
 };
 
@@ -115,7 +114,7 @@ function BalancePanel({
             </div>
             {phDays > 0 && (
               <div style={{ fontSize: 10, color: '#e91e63', fontStyle: 'italic' }}>
-                {phDays} public holiday day{phDays !== 1 ? 's' : ''} → {phDays} PH + {phDays} CL
+                {phDays} public holiday day{phDays !== 1 ? 's' : ''} → uses Weekly Off
               </div>
             )}
             {showSplitSummary && (
@@ -249,51 +248,6 @@ function SplitSection({
   );
 }
 
-function buildCalendarEvents(
-  leaveRecords: LeaveRecord[],
-  publicHolidays: { date: string; name: string }[],
-  staffList: StaffMember[],
-  campId: string,
-  calYear: number,
-  calMonth: number,
-): Record<string, { name: string; type: string; status: string }[]> {
-  const events: Record<string, { name: string; type: string; status: string }[]> = {};
-  const campStaffIds = new Set(staffList.filter((s) => s.camp_id === campId).map((s) => s.id));
-
-  leaveRecords
-    .filter((l) => campStaffIds.has(l.staff_id) && (l.status === 'approved' || l.status === 'pending'))
-    .forEach((l) => {
-      if (!events[l.date_from]) events[l.date_from] = [];
-      const s = staffList.find((x) => x.id === l.staff_id);
-      events[l.date_from].push({ name: s?.name || '', type: l.type, status: l.status });
-      if (l.date_to && l.date_to !== l.date_from) {
-        let dk = addDays(l.date_from, 1);
-        while (dk <= l.date_to) {
-          if (!events[dk]) events[dk] = [];
-          events[dk].push({ name: s?.name || '', type: l.type, status: l.status });
-          dk = addDays(dk, 1);
-        }
-      }
-    });
-
-  publicHolidays.forEach((ph) => {
-    if (!events[ph.date]) events[ph.date] = [];
-    events[ph.date].push({ name: ph.name, type: 'PH', status: 'approved' });
-  });
-
-  getMonthDates(calYear, calMonth).forEach((d) => {
-    const ds = formatDateLocal(d);
-    if (d.getDay() === 0) {
-      if (!events[ds]) events[ds] = [];
-      if (!events[ds].find((e) => e.type === 'WO')) {
-        events[ds].push({ name: 'Weekly Off', type: 'WO', status: 'approved' });
-      }
-    }
-  });
-
-  return events;
-}
-
 export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
   const { campId, staff, allStaff } = useAppData();
   const {
@@ -348,11 +302,6 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
         return s && s.camp_id === campId;
       }),
     [leaveRecords, allStaffMembers, campId],
-  );
-
-  const calEvents = useMemo(
-    () => buildCalendarEvents(leaveRecords, publicHolidays, allStaffMembers, campId, calYear, calMonth),
-    [leaveRecords, publicHolidays, allStaffMembers, campId, calYear, calMonth],
   );
 
   const staffLeaveConflict = useMemo(() => {
@@ -637,13 +586,13 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
               <strong style={{ color: ORA }}>ML:</strong> <strong>7 days fixed/year</strong>
             </span>
             <span>
-              <strong style={{ color: MUT }}>Weekly Off:</strong> Sundays in month — default for day off; unused → <strong>Comp Off</strong> next month
+              <strong style={{ color: MUT }}>Weekly Off:</strong> <strong>4 days/month</strong> (not auto-Sunday) — PH leave uses WO · unused → <strong>Comp Off</strong>
             </span>
             <span>
-              <strong style={{ color: PUR }}>Comp Off:</strong> Unused weekly offs auto-credit on 1st of next month — <strong>60 days total</strong> from the WO month (includes time as WO + CO)
+              <strong style={{ color: PUR }}>Comp Off:</strong> Unused weekly offs credit on 1st of next month — valid <strong>60 days</strong> from next month (current month excluded)
             </span>
             <span>
-              <strong style={{ color: '#e91e63' }}>Public Holiday:</strong> +1 PH credited on each holiday (if employed) — resets <strong>31 Dec</strong> · leave on a PH day costs <strong>1 PH + 1 CL</strong>
+              <strong style={{ color: '#e91e63' }}>Public Holiday:</strong> +1 PH credited on each holiday — resets <strong>31 Dec</strong> · leave on PH uses <strong>Weekly Off</strong> (not CL)
             </span>
           </div>
         </div>
@@ -1051,6 +1000,48 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
             </tbody>
           </table>
         </div>
+        <div style={{ fontSize: 13, fontWeight: 500, margin: '16px 0 8px' }}>Upcoming Leaves</div>
+        <div className="card" style={{ padding: 0 }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Staff</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Type</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {campLeaveRecords
+                .filter((l) => l.date_from >= today)
+                .sort((a, b) => a.date_from.localeCompare(b.date_from))
+                .map((l) => {
+                  const s = allStaffMembers.find((x) => x.id === l.staff_id);
+                  return (
+                    <tr key={`up-${l.id}`} style={{ background: l.status === 'approved' ? GRNL : ORAL }}>
+                      <td style={{ fontWeight: 500 }}>{s?.name || '—'}</td>
+                      <td>{formatDateDisplay(l.date_from)}</td>
+                      <td>{formatDateDisplay(l.date_to || l.date_from)}</td>
+                      <td>
+                        <LeaveTypeDisplay leave={l} />
+                      </td>
+                      <td style={{ textTransform: 'capitalize', color: l.status === 'approved' ? GRN : ORA, fontSize: 11 }}>
+                        {l.status}
+                      </td>
+                    </tr>
+                  );
+                })}
+              {campLeaveRecords.filter((l) => l.date_from >= today).length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: 'center', color: MUT, fontStyle: 'italic', padding: 14 }}>
+                    No upcoming scheduled leaves
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </>
     );
   } else if (staffSub === 'calendar') {
@@ -1060,7 +1051,6 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
     for (let i = 0; i < firstDay; i++) cells.push(<div key={`e${i}`} />);
     for (let d = 1; d <= daysInMon; d++) {
       const ds = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const evs = calEvents[ds] || [];
       const isSun = new Date(ds).getDay() === 0;
       const isPH = publicHolidays.find((h) => h.date === ds);
       const staffOut = staffOnLeaveOnDate(ds, leaveRecords, allStaffMembers, campId);
@@ -1086,17 +1076,24 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
               </span>
             )}
           </div>
-          {evs
-            .filter((e) => !['WO', 'PH'].includes(e.type))
-            .slice(0, 3)
-            .map((e, i) => {
-              const lt = LEAVE_TYPES[e.type] || { color: MUT };
-              return (
-                <div key={i} className="chip" style={{ background: `${lt.color}22`, color: lt.color, border: `1px solid ${lt.color}44` }}>
-                  {e.name.split(' ')[0]} · {e.type}
-                </div>
-              );
-            })}
+          {staffOut.map((s) => {
+            const leaveRec = campLeaveRecords.find(
+              (l) =>
+                l.staff_id === s.id &&
+                (l.status === 'approved' || l.status === 'pending') &&
+                leaveCoversDate(l, ds),
+            );
+            const lt = LEAVE_TYPES[leaveRec?.type || ''] || { color: MUT };
+            return (
+              <div
+                key={s.id}
+                className="chip"
+                style={{ background: `${lt.color}22`, color: lt.color, border: `1px solid ${lt.color}44` }}
+              >
+                {s.name} · {leaveRec?.type || 'LV'}
+              </div>
+            );
+          })}
         </div>,
       );
     }
@@ -1132,7 +1129,7 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
             Next
           </button>
           <span style={{ fontSize: 11, color: MUT, fontStyle: 'italic' }}>
-            {getSundaysInMonth(calYear, calMonth)} Sundays this month = {getSundaysInMonth(calYear, calMonth)} Weekly Offs
+            4 Weekly Off days per month (Sundays are not auto-marked as off)
           </span>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -1152,72 +1149,7 @@ export function StaffTab({ activeTab }: { activeTab: StaffSubTab }) {
           {cells}
         </div>
         <div style={{ marginTop: 14, fontSize: 11, color: MUT, fontStyle: 'italic' }}>
-          Grey = Sunday (Weekly Off) · Pink = Public Holiday · Coloured chips = staff on leave · Amber border = 2+ staff on leave
-        </div>
-      </>
-    );
-  } else if (staffSub === 'schedule') {
-    const upcoming = campLeaveRecords
-      .filter((l) => l.date_from >= today)
-      .sort((a, b) => a.date_from.localeCompare(b.date_from));
-
-    subContent = (
-      <>
-        <div className="info">
-          Advance leave blocking — schedule future leave for staff. Staff conflict check (max 2) and balance check applies automatically.
-        </div>
-        <div className="card">
-          <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 10 }}>Block Leave in Advance</div>
-          {renderLeaveFormFields({ showStatus: false })}
-          <button type="button" className="btn" onClick={() => handleApplyLeave('approved')}>
-            Block Leave (Auto-Approve)
-          </button>
-        </div>
-        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Upcoming Scheduled Leaves</div>
-        <div className="card" style={{ padding: 0 }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Staff</th>
-                <th>Designation</th>
-                <th>From</th>
-                <th>To</th>
-                <th>Type</th>
-                <th>Days</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {upcoming.map((l) => {
-                const s = allStaffMembers.find((x) => x.id === l.staff_id);
-                const from = new Date(l.date_from);
-                const to = new Date(l.date_to || l.date_from);
-                const days = Math.round((to.getTime() - from.getTime()) / 86400000) + 1;
-                return (
-                  <tr key={l.id} style={{ background: l.status === 'approved' ? GRNL : ORAL }}>
-                    <td style={{ fontWeight: 500 }}>{s?.name || '—'}</td>
-                    <td style={{ fontSize: 11, color: MUT }}>{s?.designation || ''}</td>
-                    <td>{l.date_from}</td>
-                    <td>{l.date_to || l.date_from}</td>
-                    <td>
-                      <LeaveTypeDisplay leave={l} />
-                    </td>
-                    <td>{days}</td>
-                    <td style={{ textTransform: 'capitalize', color: l.status === 'approved' ? GRN : ORA, fontSize: 11 }}>
-                      {l.status}
-                    </td>
-                  </tr>
-                );
-              })}
-              {upcoming.length === 0 && (
-                <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', color: MUT, fontStyle: 'italic', padding: 14 }}>
-                    No upcoming scheduled leaves
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          Grey = Sunday · Pink = Public Holiday · Chips = all staff on leave · Amber border = 2+ staff on leave
         </div>
       </>
     );

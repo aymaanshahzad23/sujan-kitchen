@@ -59,11 +59,11 @@ describe('leave accrual from DOJ', () => {
 });
 
 describe('weekly off balance', () => {
-  it('credits WO equal to Sundays in month (June 2024 has 5)', () => {
-    expect(getWeeklyOffCredit(2024, 5)).toBe(5);
+  it('credits 4 WO days per month (not tied to Sundays)', () => {
+    expect(getWeeklyOffCredit(2024, 5)).toBe(4);
   });
 
-  it('deducts approved WO leave from monthly balance', () => {
+  it('deducts approved WO leave and PH leave from monthly balance', () => {
     const leaves: LeaveRecord[] = [
       {
         id: 'l1',
@@ -87,9 +87,9 @@ describe('weekly off balance', () => {
       },
     ];
     const bal = getLeaveBalance(staff, leaves, [], { year: 2024, month: 5 });
-    expect(bal.cWO).toBe(5);
+    expect(bal.cWO).toBe(4);
     expect(bal.usedWO).toBe(2);
-    expect(bal.remWO).toBe(3);
+    expect(bal.remWO).toBe(2);
   });
 
   it('does not deduct PL leave from weekly off balance', () => {
@@ -107,7 +107,7 @@ describe('weekly off balance', () => {
     ];
     const bal = getLeaveBalance(staff, leaves, [], { year: 2024, month: 5 });
     expect(bal.usedWO).toBe(0);
-    expect(bal.remWO).toBe(5);
+    expect(bal.remWO).toBe(4);
   });
 });
 
@@ -337,11 +337,11 @@ describe('monthly comp off conversion', () => {
     const rows = buildMonthlyCompOffRows([staff], leaves, 2024, 4);
     expect(rows).toHaveLength(3);
     expect(rows[0].earned).toBe('2024-06-01');
-    expect(rows[0].expiry).toBe('2024-06-30');
+    expect(rows[0].expiry).toBe('2024-07-31');
   });
 
-  it('expiry counts 60 days from WO month start, not CO credit date', () => {
-    expect(compOffExpiryDate(2024, 4)).toBe('2024-06-30');
+  it('expiry counts 60 days from next month after WO month', () => {
+    expect(compOffExpiryDate(2024, 4)).toBe('2024-07-31');
     expect(compOffEarnedDate(2024, 4)).toBe('2024-06-01');
   });
 });
@@ -364,7 +364,7 @@ describe('comp off expiry helpers', () => {
     const { toAdd } = reconcileCompOffCredits([recentStaff], leaves, [], new Date('2024-06-15'));
     expect(toAdd).toHaveLength(3);
     expect(toAdd[0].earned).toBe('2024-06-01');
-    expect(toAdd[0].expiry).toBe('2024-06-30');
+    expect(toAdd[0].expiry).toBe('2024-07-31');
   });
 
   it('counts only non-expired unused comp offs', () => {
@@ -408,7 +408,7 @@ describe('public holiday leave', () => {
     expect(bal.remPH).toBe(0);
   });
 
-  it('deducts 1 PH and 1 CL when leave is taken on a public holiday', () => {
+  it('deducts WO when leave is taken on a public holiday', () => {
     const leaves: LeaveRecord[] = [
       {
         id: 'l1',
@@ -422,13 +422,13 @@ describe('public holiday leave', () => {
       },
     ];
     const bal = getLeaveBalance(staff, leaves, [], { year: 2024, month: 7 }, holidays);
-    expect(bal.usedPH).toBe(1);
-    expect(bal.remPH).toBe(0);
-    expect(bal.usedCL).toBe(1);
-    expect(bal.remCL).toBeCloseTo(4, 1);
+    expect(bal.usedPH).toBe(0);
+    expect(bal.usedWO).toBe(1);
+    expect(bal.remWO).toBe(3);
+    expect(bal.usedCL).toBe(0);
   });
 
-  it('requires PH and CL when booking leave on a public holiday', () => {
+  it('requires weekly off when booking leave on a public holiday', () => {
     const err = validateLeaveApplication(
       staff,
       '2024-08-15',
@@ -444,19 +444,17 @@ describe('public holiday leave', () => {
     expect(err).toBeNull();
   });
 
-  it('blocks public holiday leave when PH or CL balance is insufficient', () => {
-    const leaves: LeaveRecord[] = [
-      {
-        id: 'l1',
-        staff_id: 'staff-1',
-        type: 'CL',
-        date_from: '2024-08-01',
-        date_to: '2024-08-05',
-        note: '',
-        status: 'approved',
-        splits: null,
-      },
-    ];
+  it('blocks public holiday leave when weekly off balance is insufficient', () => {
+    const leaves: LeaveRecord[] = Array.from({ length: 4 }, (_, i) => ({
+      id: `l${i}`,
+      staff_id: 'staff-1',
+      type: 'WO',
+      date_from: `2024-08-0${i + 1}`,
+      date_to: `2024-08-0${i + 1}`,
+      note: '',
+      status: 'approved' as const,
+      splits: null,
+    }));
     const err = validateLeaveApplication(
       staff,
       '2024-08-15',
@@ -469,7 +467,7 @@ describe('public holiday leave', () => {
       { year: 2024, month: 7 },
       holidays,
     );
-    expect(err).toMatch(/Casual Leave/);
+    expect(err).toMatch(/Weekly Off/);
   });
 });
 

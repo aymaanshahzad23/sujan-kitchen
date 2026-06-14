@@ -1,7 +1,37 @@
 import type { LegacyDish } from '../types/database';
-import { clf, gM, gW, type Quad } from './helpers';
+import { clf, formatDateLocal, gM, gW, type Quad } from './helpers';
 
 export type { Quad };
+
+export const ANALYSIS_PERIODS = ['all', '1m', '3m', '6m', '12m'] as const;
+export type AnalysisPeriod = (typeof ANALYSIS_PERIODS)[number];
+
+export const ANALYSIS_PERIOD_LABELS: Record<AnalysisPeriod, string> = {
+  all: 'All time',
+  '1m': '1 month',
+  '3m': '3 months',
+  '6m': '6 months',
+  '12m': 'Yearly',
+};
+
+export const ANALYSIS_SECTIONS = [
+  { id: 'all', label: 'All Sections' },
+  { id: 'indian', label: 'Indian' },
+  { id: 'western', label: 'Western' },
+  { id: 'bakery', label: 'Bakery' },
+] as const;
+
+export function analysisPeriodRange(
+  period: AnalysisPeriod,
+  asOf: Date = new Date(),
+): { from: string; to: string } | null {
+  if (period === 'all') return null;
+  const to = formatDateLocal(asOf);
+  const from = new Date(asOf);
+  const months = period === '1m' ? 1 : period === '3m' ? 3 : period === '6m' ? 6 : 12;
+  from.setMonth(from.getMonth() - months);
+  return { from: formatDateLocal(from), to };
+}
 
 export type ClassifiedDish = LegacyDish & { qty: number; quad: Quad };
 
@@ -10,10 +40,20 @@ export function computeDishQuantities(
   records: { dishId: string; date: string; qty: number }[],
   view: string,
   fk: string,
+  section: string = 'all',
 ): (LegacyDish & { qty: number })[] {
-  return dishes.map((d) => {
+  const scopedDishes =
+    section !== 'all' ? dishes.filter((d) => d.section === section) : dishes;
+  const range =
+    (ANALYSIS_PERIODS as readonly string[]).includes(view) && view !== 'all'
+      ? analysisPeriodRange(view as AnalysisPeriod)
+      : null;
+
+  return scopedDishes.map((d) => {
     let rel = records.filter((r) => r.dishId === d.id);
-    if (view !== 'all' && fk) {
+    if (range) {
+      rel = rel.filter((r) => r.date >= range.from && r.date <= range.to);
+    } else if (view !== 'all' && fk) {
       rel = rel.filter((r) =>
         view === 'day' ? r.date === fk : view === 'week' ? gW(r.date) === fk : gM(r.date) === fk,
       );

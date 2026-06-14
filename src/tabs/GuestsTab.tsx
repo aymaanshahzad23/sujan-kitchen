@@ -14,8 +14,24 @@ import {
   validateGuestRegistration,
 } from '../utils/guests';
 import { punchGuestKotWithProfileSync } from '../utils/guestDishes';
+import { formatDateDisplay } from '../utils/helpers';
 
-type GuestSub = 'list' | 'add' | 'profile';
+type GuestSub = 'list' | 'add' | 'profile' | 'search';
+
+function generateCheckinId(camp: string): string {
+  const prefix = camp === 'jawai' ? 'JW' : camp === 'sherbagh' ? 'SB' : 'SR';
+  return `CHK-${prefix}-${Date.now().toString(36).toUpperCase()}`;
+}
+
+function getLastEatenDish(
+  guestId: string,
+  visitHistory: { id: string }[],
+  logsByGuest: Record<string, { date: string; dish_name: string | null; meal: string | null }[]>,
+) {
+  const ids = [guestId, ...visitHistory.map((s) => s.id).filter((id) => id !== guestId)];
+  const all = ids.flatMap((id) => logsByGuest[id] || []);
+  return [...all].sort((a, b) => b.date.localeCompare(a.date))[0] ?? null;
+}
 type GuestFilter = 'all' | 'in-house' | 'expected' | 'checked-out';
 
 const FOOD_PREFS = ['omnivore', 'vegetarian', 'vegan', 'pescatarian', 'jain', 'halal', 'kosher', 'gluten-free'] as const;
@@ -53,6 +69,10 @@ export function GuestsTab() {
   const [gExp, setGExp] = useState('');
   const [gChef, setGChef] = useState('');
   const [gFB, setGFB] = useState('');
+  const [gBday1, setGBday1] = useState('');
+  const [gBday2, setGBday2] = useState('');
+  const [gAnniv, setGAnniv] = useState('');
+  const [gSearch, setGSearch] = useState('');
 
   const [gdDish, setGdDish] = useState('');
   const [gdDate, setGdDate] = useState('');
@@ -78,6 +98,20 @@ export function GuestsTab() {
     () => (guestFilter === 'all' ? sortedGuests : sortedGuests.filter((g) => g.status === guestFilter)),
     [sortedGuests, guestFilter],
   );
+
+  const searchedGuests = useMemo(() => {
+    const q = gSearch.trim().toLowerCase();
+    if (!q) return filteredGuests;
+    return filteredGuests.filter(
+      (g) =>
+        g.name.toLowerCase().includes(q) ||
+        (g.reg_no || '').toLowerCase().includes(q) ||
+        (g.phone || '').toLowerCase().includes(q) ||
+        (g.profile_id || '').toLowerCase().includes(q) ||
+        (g.checkin_id || '').toLowerCase().includes(q) ||
+        g.id.toLowerCase().includes(q),
+    );
+  }, [filteredGuests, gSearch]);
 
   const returningProfile = useMemo(() => {
     if (!gName.trim() || !gPhone.trim()) return null;
@@ -146,6 +180,10 @@ export function GuestsTab() {
         feedback: gFB || null,
         chef_notes: gChef || autoReturningNote || prior?.chef_notes || null,
         status: gStat,
+        guest_1_birthdate: gBday1 || null,
+        guest_2_birthdate: gBday2 || null,
+        anniversary_date: gAnniv || null,
+        checkin_id: generateCheckinId(campId),
       });
       setGReg('');
       setGName('');
@@ -159,6 +197,9 @@ export function GuestsTab() {
       setGExp('');
       setGFB('');
       setGChef('');
+      setGBday1('');
+      setGBday2('');
+      setGAnniv('');
       setGSub('list');
       setSelGuest(data.id);
     } catch (e) {
@@ -198,6 +239,9 @@ export function GuestsTab() {
         <div style={{ display: 'flex', gap: 6 }}>
           <button type="button" className="btn btn-outline btn-sm" onClick={() => setGSub('list')}>
             All Guests
+          </button>
+          <button type="button" className="btn btn-outline btn-sm" onClick={() => setGSub('search')}>
+            Search
           </button>
           <button type="button" className="btn btn-sm" onClick={() => setGSub('add')}>
             + Register
@@ -279,6 +323,18 @@ export function GuestsTab() {
               <label>Chef Notes (internal)</label>
               <input placeholder="e.g. Anniversary stay" value={gChef} onChange={(e) => setGChef(e.target.value)} />
             </div>
+            <div className="field">
+              <label>Birthdate — Guest 1</label>
+              <input type="date" value={gBday1} onChange={(e) => setGBday1(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>Birthdate — Guest 2</label>
+              <input type="date" value={gBday2} onChange={(e) => setGBday2(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>Anniversary Date</label>
+              <input type="date" value={gAnniv} onChange={(e) => setGAnniv(e.target.value)} />
+            </div>
           </div>
           {returningProfile && (
             <div className="info" style={{ marginBottom: 10 }}>
@@ -324,6 +380,17 @@ export function GuestsTab() {
         </div>
       )}
 
+      {(gSub === 'list' || gSub === 'search') && campGuests.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <input
+            placeholder="Search by name, reg no, phone, profile ID, or check-in ID…"
+            value={gSearch}
+            onChange={(e) => setGSearch(e.target.value)}
+            style={{ width: '100%', maxWidth: 420, marginBottom: gSub === 'list' ? 10 : 0 }}
+          />
+        </div>
+      )}
+
       {gSub === 'list' && campGuests.length > 0 && (
         <div className="tab-bar" style={{ marginBottom: 12 }}>
           {([
@@ -344,17 +411,17 @@ export function GuestsTab() {
         </div>
       )}
 
-      {gSub === 'list' &&
+      {(gSub === 'list' || gSub === 'search') &&
         (campGuests.length === 0 ? (
           <div className="card" style={{ textAlign: 'center', color: MUT, fontStyle: 'italic', padding: 24 }}>
             No guests registered for {CAMP_NAMES[campId]} yet. Run <code>supabase/seed.sql</code> or register a guest.
           </div>
-        ) : filteredGuests.length === 0 ? (
+        ) : searchedGuests.length === 0 ? (
           <div className="card" style={{ textAlign: 'center', color: MUT, fontStyle: 'italic', padding: 24 }}>
-            No guests in this filter.
+            No guests match your search.
           </div>
         ) : (
-          filteredGuests.map((g) => {
+          searchedGuests.map((g) => {
             const inH = g.status === 'in-house';
             const isExpected = g.status === 'expected';
             const statusBadge = guestStatusBadge(g.status);
@@ -381,9 +448,10 @@ export function GuestsTab() {
                     <div style={{ fontSize: 14, fontWeight: 500, color: PR }}>{g.name}</div>
                     <div style={{ fontSize: 11, color: MUT, fontStyle: 'italic' }}>
                       {g.reg_no ? `${g.reg_no} · ` : ''}
+                      {g.checkin_id ? `${g.checkin_id} · ` : ''}
                       {g.phone ? `${g.phone} · ` : ''}
                       {g.nationality ? `${g.nationality} · ` : ''}
-                      Tent {g.tent || '—'} · {g.check_in || '—'} to {g.check_out || 'TBD'}
+                      Tent {g.tent || '—'} · {formatDateDisplay(g.check_in)} to {formatDateDisplay(g.check_out || null) || 'TBD'}
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -420,6 +488,7 @@ export function GuestsTab() {
         const logs = dishLogs[g.id] || [];
         const visitHistory = getGuestVisitHistory(g, allGuests.allGuests, campId);
         const visitNumber = getStayVisitNumber(g, allGuests.allGuests, campId);
+        const lastEaten = getLastEatenDish(g.id, visitHistory, dishLogs);
 
         return (
           <div className="card" style={{ border: `2px solid ${inH ? GRN : isExpected ? ORA : '#d9cdb8'}` }}>
@@ -427,10 +496,11 @@ export function GuestsTab() {
               <div>
                 <div style={{ fontSize: 15, fontWeight: 500, color: PR }}>{g.name}</div>
                 <div style={{ fontSize: 11, color: MUT, fontStyle: 'italic' }}>
-                  Profile ID {g.profile_id || g.id} · Stay {g.id.slice(0, 8)}…
+                  Profile ID {g.profile_id || g.id}
+                  {g.checkin_id ? ` · Check-in ID ${g.checkin_id}` : ''}
                 </div>
                 <div style={{ fontSize: 11, color: MUT, fontStyle: 'italic' }}>
-                  {g.reg_no || ''} · {g.phone || ''} · {g.nationality || ''}
+                  Reg {g.reg_no || '—'} · {g.phone || '—'} · {g.nationality || '—'}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
@@ -457,6 +527,13 @@ export function GuestsTab() {
                 </button>
               </div>
             </div>
+
+            {lastEaten && (
+              <div className="info" style={{ marginBottom: 12 }}>
+                Last eaten: <strong>{lastEaten.dish_name || '—'}</strong>
+                {lastEaten.meal ? ` (${lastEaten.meal})` : ''} on {formatDateDisplay(lastEaten.date)}
+              </div>
+            )}
 
             {isReturningGuest(visitHistory) && (
               <div className="info" style={{ marginBottom: 12 }}>
@@ -501,9 +578,12 @@ export function GuestsTab() {
               {([
                 ['Tent', g.tent || '—'],
                 ['Phone', g.phone || '—'],
-                ['Check-In', g.check_in || '—'],
-                ['Check-Out', g.check_out || '—'],
+                ['Check-In', formatDateDisplay(g.check_in)],
+                ['Check-Out', formatDateDisplay(g.check_out)],
                 ['Food Pref', g.food_pref],
+                ['Guest 1 DOB', formatDateDisplay(g.guest_1_birthdate)],
+                ['Guest 2 DOB', formatDateDisplay(g.guest_2_birthdate)],
+                ['Anniversary', formatDateDisplay(g.anniversary_date)],
               ] as const).map(([l, v]) => (
                 <div key={l} style={{ background: '#f7f4f0', borderRadius: 3, padding: '8px 12px' }}>
                   <div style={{ fontSize: 10, color: MUT, fontStyle: 'italic', marginBottom: 2 }}>{l}</div>

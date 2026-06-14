@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAppData } from '../context/AppContext';
 import { PBar } from '../components/PBar';
 import { StatCard } from '../components/StatCard';
@@ -14,7 +14,7 @@ import {
   SECS,
   CAMP_NAMES,
 } from '../constants';
-import { fN, gM, gW, normalizeDate } from '../utils/helpers';
+import { fN, formatDateDisplay, gM, gW, normalizeDate } from '../utils/helpers';
 import { getDishCost } from '../utils/leave';
 import { toLegacyDish } from '../lib/mappers';
 import { supabase } from '../lib/supabase';
@@ -24,7 +24,7 @@ type FcSub = 'dashboard' | 'main' | 'sections' | 'issue' | 'recipes';
 type InvSub = 'overview' | 'receive' | 'add';
 
 export function FoodCostTab() {
-  const { campId, camps, dishes, kots, inventory, recipes } = useAppData();
+  const { campId, dishes, kots, inventory, recipes } = useAppData();
 
   const [fcSub, setFcSub] = useState<FcSub>('dashboard');
   const [invSub, setInvSub] = useState<InvSub>('overview');
@@ -54,10 +54,6 @@ export function FoodCostTab() {
 
   const [dcD, setDcD] = useState('');
   const [dcV, setDcV] = useState('');
-
-  const campMeta = camps.camps.find((c) => c.id === campId);
-  const openVal = campMeta?.opening_stock_value ?? 0;
-  const purchVal = campMeta?.purchases_value ?? 0;
 
   const cd = useMemo(() => dishes.dishes.map(toLegacyDish), [dishes.dishes]);
   const ingr = inventory.ingredients;
@@ -118,11 +114,16 @@ export function FoodCostTab() {
     const nFC = tC - mC;
     const tR = diCons.reduce((s, d) => s + d.gQ, 0);
     const fcP = 0;
-    const oV = openVal || 0;
-    const pV = purchVal || 0;
-    const spV = purchases.reduce((s, p) => s + p.qty * p.price, 0);
-    return { tC, mC, nFC, tR, fcP, oV, pV, spV, closing: Math.max(0, oV + pV + spV - nFC) };
-  }, [diCons, openVal, purchVal, purchases]);
+    const oV = ingr.reduce((s, i) => s + (openingStock[i.id] ?? 0) * i.price, 0);
+    const pV = purchases.reduce((s, p) => s + p.qty * p.price, 0);
+    return { tC, mC, nFC, tR, fcP, oV, pV, spV: pV, closing: Math.max(0, oV + pV - nFC) };
+  }, [diCons, ingr, openingStock, purchases]);
+
+  useEffect(() => {
+    if (!pur_i) return;
+    const ing = ingr.find((i) => i.id === pur_i);
+    if (ing) setPurP(String(ing.price));
+  }, [pur_i, ingr]);
 
   const mainStore = useMemo(
     () =>
@@ -270,33 +271,6 @@ export function FoodCostTab() {
       {fcSub === 'dashboard' && (
         <div>
           <PBar per={fcPer} setPer={setFcPer} pKey={fcKey} setPKey={setFcKey} opts={fcDates} />
-          <div className="card">
-            <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 8 }}>Period Inputs</div>
-            <div className="row">
-              <div className="field">
-                <label>Opening Stock (Rs)</label>
-                <input
-                  type="number"
-                  value={openVal}
-                  onChange={(e) =>
-                    camps.updateCampValues(campId, +e.target.value, purchVal)
-                  }
-                  style={{ width: 140 }}
-                />
-              </div>
-              <div className="field">
-                <label>Purchases Value (Rs)</label>
-                <input
-                  type="number"
-                  value={purchVal}
-                  onChange={(e) =>
-                    camps.updateCampValues(campId, openVal, +e.target.value)
-                  }
-                  style={{ width: 140 }}
-                />
-              </div>
-            </div>
-          </div>
           <div className="stats">
             <StatCard label="Opening Stock" val={fcSum.oV} />
             <StatCard label="(+) Purchases" val={fcSum.pV} color={GRN} />
@@ -568,7 +542,7 @@ export function FoodCostTab() {
                         const ing = ingr.find((x) => x.id === p.ingredient_id);
                         return (
                           <tr key={p.id}>
-                            <td>{p.date}</td>
+                            <td>{formatDateDisplay(p.date)}</td>
                             <td>{ing?.name || '—'}</td>
                             <td style={{ color: GRN }}>
                               +{p.qty} {ing?.unit || ''}

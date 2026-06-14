@@ -123,12 +123,16 @@ function Dashboard({ camp, tab, onLogout }: { camp: CampId; tab: MainTab; onLogo
 function CampShell({ onLogout }: { onLogout: () => void }) {
   const { camp: campParam, tab: tabParam } = useParams();
 
-  if (!campParam || !tabParam || !isCampId(campParam) || !isMainTab(tabParam)) {
+  if (!campParam || !tabParam || !isCampId(campParam)) {
+    return <Navigate to={DEFAULT_PATH} replace />;
+  }
+
+  const tab = tabParam === 'staff-schedule' ? 'staff-leaves' : tabParam;
+  if (!isMainTab(tab)) {
     return <Navigate to={DEFAULT_PATH} replace />;
   }
 
   const camp = campParam;
-  const tab = tabParam;
 
   return (
     <>
